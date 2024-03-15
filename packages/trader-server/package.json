@@ -1,0 +1,33 @@
+{
+  "name": "trader-server",
+  "version": "0.0.0",
+  "description": "tarder-robot",
+  "keywords": [
+    "trader",
+    "robot"
+  ],
+  "author": "hubo02 <hubo02@bilibili.com>",
+  "homepage": "https://github.com/H-jx/auto-trader-node",
+  "license": "ISC",
+  "main": "lib/trader-server.js",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmmirror.com/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/H-jx/auto-trader-node.git"
+  },
+  "scripts": {
+    "test": "node ./__tests__/trader-server.test.js"
+  },
+  "bugs": {
+    "url": "https://github.com/H-jx/auto-trader-node/issues"
+  }
+}
