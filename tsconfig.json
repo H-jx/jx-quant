@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "lib":["es2018"],
+    "strictNullChecks": false,
+    "moduleResolution": "node",
+    "baseUrl": "./",
+    "types": ["node"],
+    "typeRoots": ["./typings", "./node_modules/@types"],
+  }
+}

@@ -1,15 +1,14 @@
 {
   "name": "jx-quant",
-  "version": "0.0.0",
-  "description": "Virtual currency indicators and strategies",
+  "version": "0.0.1",
+  "description": "indicators and strategies",
   "keywords": [
     "quant",
     "indicator",
     "strategy"
   ],
   "author": "hubo02 <hubo02@bilibili.com>",
-  "homepage": "https://github.com/H-jx/jx-quant#readme",
-  "license": "CC-BY-NC-4.0",
+  "license": "GPL-3.0-or-later",
   "main": "lib/jx-quant.js",
   "directories": {
     "lib": "lib",
@@ -26,9 +25,17 @@
     "url": "git+https://github.com/H-jx/jx-quant.git"
   },
   "scripts": {
-    "test": "node ./__tests__/quant-ts.test.js"
+    "lib": "lib",
+    "build": "tsup-node ./src/**/*.ts",
+    "test": "jest --colors --onlyChanged"
   },
   "bugs": {
     "url": "https://github.com/H-jx/jx-quant/issues"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.6.3",
+    "tsup": "^8.1.0",
+    "tsup-node": "^0.1.0",
+    "typescript": "^4.9.5"
   }
 }
