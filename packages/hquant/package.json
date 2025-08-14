@@ -1,0 +1,48 @@
+{
+  "name": "hquant",
+  "version": "0.0.1",
+  "description": "indicators and strategies",
+  "keywords": [
+    "quant",
+    "indicator",
+    "strategy"
+  ],
+  "author": "hubo <hubo9@qq.com>",
+  "license": "GPL-3.0-or-later",
+  "main": "lib/index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/H-jx/jx-quant.git"
+  },
+  "scripts": {
+    "lib": "lib",
+    "build": "tsup-node ./src/**/*.ts",
+    "test": "jest --colors --onlyChanged"
+  },
+  "bugs": {
+    "url": "https://github.com/H-jx/jx-quant/issues"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.6.3",
+    "@types/jest": "^29.5.14",
+    "babel-jest": "^29.7.0",
+    "ts-jest": "^29.4.1",
+    "tsup": "^8.5.0",
+    "tsup-node": "^0.1.0",
+    "typescript": "^4.9.5"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "esbuild": "^0.25.9"
+  }
+}

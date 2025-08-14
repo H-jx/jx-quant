@@ -1,0 +1,10 @@
+src/
+__test__/
+tsconfig.json
+tsconfig.node.json
+jest.config.js
+*.ts
+*.md
+*.map
+node_modules/
+*.log
