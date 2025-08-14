@@ -1,7 +1,11 @@
+
 import { CircularQueue } from "../common/CircularQueue";
 import { Kline, Indicator } from "../interface";
 import { keepDecimalFixed } from "../util";
 
+/**
+ * VRI 量比指标：当前周期成交量与历史平均成交量的比值
+ */
 export class VRI implements Indicator<Kline> {
   private readonly period: number;
   private buffer: CircularQueue<Kline>;
@@ -14,20 +18,13 @@ export class VRI implements Indicator<Kline> {
     this.result = new CircularQueue<number>(this.maxHistoryLength);
   }
 
-  private calcTrueRange(curr: Kline, prevClose: number): number {
-    const highLow = curr.high - curr.low;
-    const highClose = Math.abs(curr.high - prevClose);
-    const lowClose = Math.abs(curr.low - prevClose);
-    return Math.max(highLow, highClose, lowClose);
-  }
-
   add(data: Kline): void {
     this.buffer.push(data);
     if (this.buffer.size() === this.period) {
-        this.result.push(this.calcVRI());
+      this.result.push(this.calcVRI());
     }
   }
-  
+
   updateLast(data: Kline): void {
     if (this.buffer.size() > 0) {
       this.buffer.update(this.buffer.size() - 1, data);
@@ -37,23 +34,31 @@ export class VRI implements Indicator<Kline> {
     }
   }
 
+  /**
+   * 量比 = 当前周期成交量 / 历史平均成交量
+   */
   private calcVRI(): number {
-
-    let totalTR = 0;
-    for (let i = 0; i < this.buffer.size(); i++) {
-      const curr = this.buffer.get(i);
-      const prevClose = i === 0 ? curr.open : this.buffer.get(i - 1).close;
-      totalTR += this.calcTrueRange(curr, prevClose);
+    const size = this.buffer.size();
+    if (size < 2) return 0;
+    let currVolume = 0;
+    let sumVolume = 0;
+    for (let i = 0; i < size; i++) {
+      const v = this.buffer.get(i).volume;
+      if (i === size - 1) {
+        currVolume = v;
+      } else {
+        sumVolume += v;
+      }
     }
-  
-    const netMove = Math.abs(this.buffer.get(this.buffer.size()- 1).close - this.buffer.get(0).open) || 1e-6;
-    const ratio = Math.min(1, netMove / totalTR);
-    return keepDecimalFixed((1 - ratio) * 100, 2);
+    const avgVolume = sumVolume / (size - 1);
+    const ratio = avgVolume > 0 ? currVolume / avgVolume : 0;
+    return keepDecimalFixed(ratio, 2);
   }
+
   getValue(index = -1): number {
     if (index < 0) {
-        return this.result.get(this.result.size() + index);
-      }
-      return this.result.get(index);
+      return this.result.get(this.result.size() + index);
+    }
+    return this.result.get(index);
   }
 }
