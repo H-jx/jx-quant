@@ -1,67 +1,101 @@
-## Quant
 
-Quant typescript 实现
+# hquant
 
-数组用CircularQueue<T>
+TypeScript 量化指标与策略框架，支持高效滑动窗口、事件驱动、策略回测等。
 
+## 特性
+- 技术指标、交易策略、信号回调全流程支持
+- 高性能 CircularQueue 实现，适合实时数据流
+- 支持自定义数据结构和多种指标
 
-#### 示例1：添加 技术指标
+## 安装
+```bash
+pnpm add hquant
+```
 
+## 快速开始
+
+### 1. 创建 Quant 实例
 ```ts
+import { Quant } from "hquant";
+const quant = new Quant({ maxHistoryLength: 240 });
+```
+
+### 2. 添加技术指标
+```ts
+import { MA } from "hquant/lib/indicator/ma";
 import { BOLL } from "hquant/lib/indicator/boll";
 import { RSI } from "hquant/lib/indicator/rsi";
-import { Quant } from "hquant";
 
-const quant = new Quant();
-quant.addIndicator('boll', new BOLL({ period: 14, stdDevFactor: 2 }));
 quant.addIndicator('ma60', new MA({ period: 60 }));
+quant.addIndicator('boll', new BOLL({ period: 14, stdDevFactor: 2 }));
+quant.addIndicator('rsi', new RSI({ period: 14 }));
 ```
 
-#### 示例2：添加 添加交易策略
+### 3. 添加交易策略
 ```ts
-quant.addStrategy('rsi', (indicators, history: Bar[]) => {
+quant.addStrategy('rsi', (indicators, bar) => {
   const rsi = indicators.get('rsi').getValue();
-  if (rsi < 30) {
-    return 'BUY';
-  } else if (rsi > 70) {
-    return 'SELL';
-  }
+  if (rsi < 30) return 'BUY';
+  if (rsi > 70) return 'SELL';
 });
 ```
 
-#### 示例3：注册信号回调函数
-
+### 4. 注册信号回调
 ```ts
-quant.onSignal('rsi', (signal, bar: Bar) => {
-  console.log(`Received signal: ${signal}`);
+quant.onSignal('rsi', (signal, bar) => {
+  console.log(`RSI信号: ${signal}`);
 });
-quant.onSignal('all', (signal, bar: Bar) => {
-  console.log(`Received signal: ${signals}`);
+quant.onSignal('all', (signals, bar) => {
+  console.log(`全部信号:`, signals);
 });
 ```
 
-#### 添加数据
-
+### 5. 添加/更新数据
 ```ts
-quant.addData(data:  {
-    open: number;
-    close: number;
-    low: number;
-    high: number;
-    volume: number;
-    sell?: number;
-    buy?: number;
-    timestamp: number;
-})
-// 更新数据
-quant.updateLastData(data:  {
-    open: number;
-    close: number;
-    low: number;
-    high: number;
-    volume: number;
-    sell?: number;
-    buy?: number;
-    timestamp: number;
-})
+quant.addData({
+  open: 100,
+  close: 105,
+  low: 99,
+  high: 106,
+  volume: 1000,
+  timestamp: Date.now()
+});
+// 更新最后一条数据
+quant.updateLastData({ ... });
 ```
+
+### 6. 获取指标和信号
+```ts
+const ma = quant.getIndicator('ma60').getValue();
+const rsiSignal = quant.getSignal('rsi');
+```
+
+### 7. 获取历史数据
+```ts
+const history = quant.history.toArray();
+```
+
+### 8. 移除指标/策略
+```ts
+quant.removeIndicator('ma60');
+quant.removeStrategy('rsi');
+```
+
+### 9. 销毁 Quant 实例
+```ts
+quant.destroy();
+```
+
+## 进阶用法
+- 支持自定义数据结构（继承 Kline）
+- 支持自定义指标和策略
+- 支持多指标、多策略组合
+
+## 目录结构说明
+- `src/indicator/`：内置技术指标（MA、BOLL、RSI、ATR等）
+- `src/common/`：高性能数据结构（CircularQueue、SharedBufferQueue等）
+- `src/Quant.ts`：核心量化框架
+
+## 贡献与反馈
+如有问题或建议，欢迎提交 issue 或 PR。
