@@ -92,18 +92,23 @@ const _BOLL = class _BOLL {
     };
   }
   calculateStdDev() {
-    const values = this.stdDevQueue.toArray();
-    const validValues = values.filter((v) => v != null);
-    if (validValues.length < this.stdDevFactor) {
+    const size = this.stdDevQueue.size();
+    if (size < this.stdDevFactor) {
       return NaN;
     }
     const avg = this.ma.getValue(-1);
-    const squareDiffs = values.map((value) => {
-      const diff = value - avg;
-      return diff * diff;
-    });
-    const avgSquareDiff = squareDiffs.reduce((a, b) => a + b, 0) / squareDiffs.length;
-    return Math.sqrt(avgSquareDiff);
+    let sumSqDiff = 0;
+    let count = 0;
+    for (let i = 0; i < size; i++) {
+      const value = this.stdDevQueue.get(i);
+      if (value != null) {
+        const diff = value - avg;
+        sumSqDiff += diff * diff;
+        count++;
+      }
+    }
+    if (count === 0) return NaN;
+    return Math.sqrt(sumSqDiff / count);
   }
 };
 __name(_BOLL, "BOLL");

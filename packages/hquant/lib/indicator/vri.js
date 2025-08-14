@@ -36,12 +36,6 @@ const _VRI = class _VRI {
     this.buffer = new import_CircularQueue.CircularQueue(period);
     this.result = new import_CircularQueue.CircularQueue(this.maxHistoryLength);
   }
-  calcTrueRange(curr, prevClose) {
-    const highLow = curr.high - curr.low;
-    const highClose = Math.abs(curr.high - prevClose);
-    const lowClose = Math.abs(curr.low - prevClose);
-    return Math.max(highLow, highClose, lowClose);
-  }
   add(data) {
     this.buffer.push(data);
     if (this.buffer.size() === this.period) {
@@ -56,16 +50,25 @@ const _VRI = class _VRI {
       }
     }
   }
+  /**
+  * 量比 = 当前周期成交量 / 历史平均成交量
+  */
   calcVRI() {
-    let totalTR = 0;
-    for (let i = 0; i < this.buffer.size(); i++) {
-      const curr = this.buffer.get(i);
-      const prevClose = i === 0 ? curr.open : this.buffer.get(i - 1).close;
-      totalTR += this.calcTrueRange(curr, prevClose);
+    const size = this.buffer.size();
+    if (size < 2) return 0;
+    let currVolume = 0;
+    let sumVolume = 0;
+    for (let i = 0; i < size; i++) {
+      const v = this.buffer.get(i).volume;
+      if (i === size - 1) {
+        currVolume = v;
+      } else {
+        sumVolume += v;
+      }
     }
-    const netMove = Math.abs(this.buffer.get(this.buffer.size() - 1).close - this.buffer.get(0).open) || 1e-6;
-    const ratio = Math.min(1, netMove / totalTR);
-    return (0, import_util.keepDecimalFixed)((1 - ratio) * 100, 2);
+    const avgVolume = sumVolume / (size - 1);
+    const ratio = avgVolume > 0 ? currVolume / avgVolume : 0;
+    return (0, import_util.keepDecimalFixed)(ratio, 2);
   }
   getValue(index = -1) {
     if (index < 0) {
