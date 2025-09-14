@@ -88,13 +88,39 @@ quant.destroy();
 ```
 
 ## 进阶用法
-- 支持自定义数据结构（继承 Kline）
-- 支持自定义指标和策略
-- 支持多指标、多策略组合
+- ### ObjectRingBuffer 内存共享示例（主线程与 Worker 间零拷贝）
+
+```ts
+import { SharedObjectRingBuffer } from "hquant/lib/common/ObjectRingBuffer";
+
+// 1. 主线程创建共享队列
+const buf = new SharedObjectRingBuffer(
+  { price: Float64Array, amount: Float64Array },
+  1000
+);
+buf.push({ price: 1.23, amount: 100 });
+buf.push({ price: 1.25, amount: 120 });
+
+// 2. 导出元数据，传递给 Worker
+const meta = buf.exportMeta();
+worker.postMessage(meta, [meta.sab, meta.controlBuffer]); // 共享内存，无拷贝
+
+// 3. Worker 内重建队列，直接访问主线程数据
+// Worker.js
+import { SharedObjectRingBuffer } from "hquant/lib/common/ObjectRingBuffer";
+self.onmessage = (e) => {
+  const meta = e.data;
+  const buf = SharedObjectRingBuffer.importMeta(meta);
+  // 直接读取主线程写入的数据
+  console.log(buf.get(0)); // { price: 1.23, amount: 100 }
+  buf.push({ price: 1.30, amount: 150 }); // 也可写入，主线程可见
+};
+```
+
 
 ## 目录结构说明
 - `src/indicator/`：内置技术指标（MA、BOLL、RSI、ATR等）
-- `src/common/`：高性能数据结构（CircularQueue、SharedBufferQueue等）
+- `src/common/`：高性能数据结构（CircularQueue、ObjectRingBuffer等）
 - `src/Quant.ts`：核心量化框架
 
 ## 贡献与反馈

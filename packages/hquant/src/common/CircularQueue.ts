@@ -38,7 +38,7 @@ export class CircularQueue<T> {
       return undefined;
     }
     const item = this.queue[this.rear - 1];
-    this.rear = (this.rear - 1) % this.maxSize;
+    this.rear = (this.rear - 1 + this.maxSize) % this.maxSize;
     return item;
   }
 
@@ -67,7 +67,7 @@ export class CircularQueue<T> {
     const i = (this.front + index) % this.maxSize;
     return this.queue[i];
   }
-  getLast(): T{
+  getLast(): T {
     return this.get(this.size() - 1);
   }
   toArray(): T[] {
