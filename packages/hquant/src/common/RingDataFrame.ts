@@ -70,17 +70,21 @@ export class RingDataFrame<T extends DataFrameRow = DataFrameRow> {
       }
     }
   }
-  toArray(): T[] {
-    const arr: T[] = [];
-    for (let i = 0; i < this.length; i++) {
-      arr.push(this.getRow(i));
-    }
-    return arr;
-  }
 
   clear() {
     for (const [, col] of this.columns) {
       col.clear();
     }
   }
+
+  /**
+   * 迭代器支持
+   */
+  *[Symbol.iterator](): IterableIterator<T> {
+    for (let i = 0; i < this.length; i++) {
+      const item = this.getRow(i);
+      if (item) yield item;
+    }
+  }
+
 }

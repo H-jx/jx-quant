@@ -1,21 +1,21 @@
-import { CircularQueue } from "../common/CircularQueue";
+import { TypedRingBuffer } from "../common/TypedRingBuffer";
 import { Kline, Indicator } from "../interface";
 
 /**
  * 均线指标
  */
 export class MA implements Indicator {
-  buffer: CircularQueue<number>;
+  buffer: TypedRingBuffer;
   period: number;
-  result: CircularQueue<number>;
+  result: TypedRingBuffer;
   maxHistoryLength = 120;
   key: keyof Kline;
-  constructor({period, maxHistoryLength, key}: {period: number, maxHistoryLength?: number, key?: keyof Kline}) {
+  constructor({ period, maxHistoryLength, key }: { period: number, maxHistoryLength?: number, key?: keyof Kline }) {
     this.maxHistoryLength = maxHistoryLength || this.maxHistoryLength;
     this.period = period;
     this.key = key || 'close';
-    this.buffer = new CircularQueue(period);
-    this.result = new CircularQueue(this.maxHistoryLength);
+    this.buffer = new TypedRingBuffer('float', period);
+    this.result = new TypedRingBuffer('float', this.maxHistoryLength);
   }
 
   getPeriodSum(): number {
@@ -37,7 +37,7 @@ export class MA implements Indicator {
 
     const size = Math.min(this.period, this.buffer.size());
     const ma = this.buffer.size() < this.period ? NaN : this.getPeriodSum() / size;
- 
+
     this.result.push(ma);
     return ma;
   }

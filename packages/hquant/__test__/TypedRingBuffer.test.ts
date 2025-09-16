@@ -46,13 +46,15 @@ describe('TypedRingBuffer', () => {
     expect(buf.getLast()).toBe(30);
   });
 
-  it('should clear and toArray', () => {
+  it('should clear and iterator', () => {
     const buf = new TypedRingBuffer('float', 2);
     buf.push(1.1);
     buf.push(2.2);
     buf.clear();
     expect(buf.size()).toBe(0);
     buf.push(3.3);
-    expect(buf.toArray()).toEqual([3.3]);
+    for (const val of buf) {
+      expect(val).toBeCloseTo(3.3);
+    }
   });
 });

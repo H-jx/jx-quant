@@ -1,4 +1,4 @@
-import { CircularQueue } from "../common/CircularQueue";
+import { TypedRingBuffer } from "../common/TypedRingBuffer";
 import { Kline, Indicator } from "../interface";
 import { keepDecimalFixed } from "../util";
 import { MA } from "./ma";
@@ -9,20 +9,20 @@ import { MA } from "./ma";
  */
 export class BOLL implements Indicator {
   private ma: MA;
-  private stdDevQueue: CircularQueue<number>;
-  private upperBand: CircularQueue<number>;
-  private midBand: CircularQueue<number>;
-  private lowerBand: CircularQueue<number>;
+  private stdDevQueue: TypedRingBuffer;
+  private upperBand: TypedRingBuffer;
+  private midBand: TypedRingBuffer;
+  private lowerBand: TypedRingBuffer;
   private stdDevFactor: number;
   maxHistoryLength = 120;
 
-  constructor({period, stdDevFactor, maxHistoryLength}: {period: number, stdDevFactor: number, maxHistoryLength?: number}) {
+  constructor({ period, stdDevFactor, maxHistoryLength }: { period: number, stdDevFactor: number, maxHistoryLength?: number }) {
     this.maxHistoryLength = maxHistoryLength || this.maxHistoryLength;
-    this.ma = new MA({period, maxHistoryLength: this.maxHistoryLength, key: undefined});
-    this.stdDevQueue = new CircularQueue(period);
-    this.upperBand = new CircularQueue(this.maxHistoryLength);
-    this.midBand = new CircularQueue(this.maxHistoryLength);
-    this.lowerBand = new CircularQueue(this.maxHistoryLength);
+    this.ma = new MA({ period, maxHistoryLength: this.maxHistoryLength, key: undefined });
+    this.stdDevQueue = new TypedRingBuffer('float', period);
+    this.upperBand = new TypedRingBuffer('float', this.maxHistoryLength);
+    this.midBand = new TypedRingBuffer('float', this.maxHistoryLength);
+    this.lowerBand = new TypedRingBuffer('float', this.maxHistoryLength);
     this.stdDevFactor = stdDevFactor;
   }
 
@@ -66,9 +66,9 @@ export class BOLL implements Indicator {
   getValue(index = -1) {
     const i = index < 0 ? this.upperBand.size() + index : index;
     return {
-      up: keepDecimalFixed(this.upperBand.get(i), 4),
-      mid: keepDecimalFixed(this.midBand.get(i), 4),
-      low: keepDecimalFixed(this.lowerBand.get(i), 4)
+      up: keepDecimalFixed(this.upperBand.get(i) || NaN, 4),
+      mid: keepDecimalFixed(this.midBand.get(i) || NaN, 4),
+      low: keepDecimalFixed(this.lowerBand.get(i) || NaN, 4)
     };
   }
 

@@ -1,4 +1,4 @@
-import { CircularQueue } from "../common/CircularQueue";
+import { TypedRingBuffer } from "../common/TypedRingBuffer";
 import { Kline, Indicator } from "../interface";
 import { keepDecimalFixed } from "../util";
 
@@ -6,14 +6,14 @@ import { keepDecimalFixed } from "../util";
 
 export class RSI implements Indicator {
   private readonly period: number;
-  private readonly values: CircularQueue<number>;
+  private readonly values: TypedRingBuffer;
   private avgGain = 0;
   private avgLoss = 0;
   maxHistoryLength = 120;
 
-  constructor({ period }: { period: number}) {
+  constructor({ period }: { period: number }) {
     this.period = period;
-    this.values = new CircularQueue(period)
+    this.values = new TypedRingBuffer('float', period)
   }
 
   add(data: Kline): void {

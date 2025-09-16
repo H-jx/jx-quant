@@ -1,5 +1,7 @@
-// 支持 TypedArray 的高性能循环队列
-
+/**
+ * 支持 TypedArray 的高性能循环队列
+ * 支持 float 和 int 类型
+ */
 export class TypedRingBuffer {
   private buffer: Float64Array | Int32Array;
   private capacity: number;
@@ -47,16 +49,19 @@ export class TypedRingBuffer {
     return true;
   }
 
-  get(index: number): number | undefined {
-    if (index < 0 || index >= this._length) return undefined;
+  get(index: number): number {
+    if (index < 0 || index >= this._length) return NaN;
     const i = (this.front + index) % this.capacity;
-    return this.buffer[i];
+    return this.buffer[i] === undefined ? NaN : this.buffer[i];
   }
 
-  getLast(): number | undefined {
+  getLast() {
     return this.get(this._length - 1);
   }
 
+  get length(): number {
+    return this._length;
+  }
   size(): number {
     return this._length;
   }
@@ -72,11 +77,13 @@ export class TypedRingBuffer {
     this._length = 0;
   }
 
-  toArray(): number[] {
-    const arr: number[] = [];
+  /**
+   * 迭代器支持
+   */
+  *[Symbol.iterator](): IterableIterator<number> {
     for (let i = 0; i < this._length; i++) {
-      arr.push(this.get(i)!);
+      const item = this.get(i);
+      if (item) yield item;
     }
-    return arr;
   }
 }

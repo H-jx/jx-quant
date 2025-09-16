@@ -4,7 +4,7 @@
  * @param value 待处理的数值
  * @param digits 保留位数
  */
- export const keepDecimalFixed = (value: number | string, digits = 2) => {
+export const keepDecimalFixed = (value: number | string, digits = 2) => {
     const unit = Math.pow(10, digits);
     const val = typeof value === 'number' ? value : Number(value);
     return Math.trunc(val * unit) / unit;

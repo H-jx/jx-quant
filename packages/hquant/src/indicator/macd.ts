@@ -1,4 +1,4 @@
-import { CircularQueue } from "../common/CircularQueue";
+import { TypedRingBuffer } from "../common/TypedRingBuffer";
 import { Kline, Indicator } from "../interface";
 import { MA } from "./ma";
 
@@ -9,8 +9,8 @@ export class MACD implements Indicator {
   private shortTermMA: MA;
   private longTermMA: MA;
   private signalLineMA: MA;
-  private macdLine: CircularQueue<number>;
-  private signalLine: CircularQueue<number>;
+  private macdLine: TypedRingBuffer;
+  private signalLine: TypedRingBuffer;
   maxHistoryLength = 120;
 
   constructor({ shortTermPeriod, longTermPeriod, signalLinePeriod, maxHistoryLength }: { shortTermPeriod: number, longTermPeriod: number, signalLinePeriod: number, maxHistoryLength?: number }) {
@@ -18,8 +18,8 @@ export class MACD implements Indicator {
     this.shortTermMA = new MA({ period: shortTermPeriod, maxHistoryLength: this.maxHistoryLength, key: undefined });
     this.longTermMA = new MA({ period: longTermPeriod, maxHistoryLength: this.maxHistoryLength, key: undefined });
     this.signalLineMA = new MA({ period: signalLinePeriod, maxHistoryLength: this.maxHistoryLength, key: undefined });
-    this.macdLine = new CircularQueue(this.maxHistoryLength);
-    this.signalLine = new CircularQueue(this.maxHistoryLength);
+    this.macdLine = new TypedRingBuffer('float', this.maxHistoryLength);
+    this.signalLine = new TypedRingBuffer('float', this.maxHistoryLength);
   }
 
   add(data: Kline): void {
