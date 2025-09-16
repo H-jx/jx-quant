@@ -70,15 +70,14 @@ export class CircularQueue<T> {
   getLast(): T {
     return this.get(this.size() - 1);
   }
-  toArray(): T[] {
-    const res: T[] = [];
-    let size = this.size();
-    let i = this.front;
-    while (size > 0 && this.queue[i] !== undefined) {
-      res.push(this.queue[i]);
-      i = (i + 1) % this.maxSize;
-      size--;
+
+  /**
+  * 迭代器支持
+  */
+  *[Symbol.iterator](): IterableIterator<T> {
+    for (let i = 0; i < this.size(); i++) {
+      const item = this.get(i);
+      if (item) yield item;
     }
-    return res;
   }
 }
