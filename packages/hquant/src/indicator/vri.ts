@@ -1,5 +1,6 @@
 
 import { CircularQueue } from "../common/CircularQueue";
+import { TypedRingBuffer } from "../common/TypedRingBuffer";
 import { Kline, Indicator } from "../interface";
 import { keepDecimalFixed } from "../util";
 
@@ -9,13 +10,13 @@ import { keepDecimalFixed } from "../util";
 export class VRI implements Indicator<Kline> {
   private readonly period: number;
   private buffer: CircularQueue<Kline>;
-  result: CircularQueue<number>;
+  result: TypedRingBuffer;
   maxHistoryLength = 120;
 
   constructor({ period }: { period: number }) {
     this.period = period;
     this.buffer = new CircularQueue<Kline>(period);
-    this.result = new CircularQueue<number>(this.maxHistoryLength);
+    this.result = new TypedRingBuffer('float', this.maxHistoryLength);
   }
 
   add(data: Kline): void {

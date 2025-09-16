@@ -1,4 +1,5 @@
 import { CircularQueue } from "../common/CircularQueue";
+import { TypedRingBuffer } from "../common/TypedRingBuffer";
 import { Kline, Indicator } from "../interface";
 
 /**
@@ -7,14 +8,14 @@ import { Kline, Indicator } from "../interface";
 export class ATR implements Indicator {
   buffer: CircularQueue<Kline>;
   period: number;
-  result: CircularQueue<number>;
+  result: TypedRingBuffer;
   maxHistoryLength = 120;
 
   constructor({ period, maxHistoryLength }: { period: number; maxHistoryLength?: number }) {
     this.maxHistoryLength = maxHistoryLength || this.maxHistoryLength;
     this.period = period;
     this.buffer = new CircularQueue<Kline>(period);
-    this.result = new CircularQueue<number>(this.maxHistoryLength);
+    this.result = new TypedRingBuffer('float', this.maxHistoryLength);
   }
 
   // 计算单个K线的真实波幅
