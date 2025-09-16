@@ -25,7 +25,7 @@
     "url": "git+https://github.com/H-jx/jx-quant.git"
   },
   "scripts": {
-    "lib": "lib",
+    "lib": "tsc",
     "build": "tsup-node ./src/**/*.ts",
     "test": "jest --colors --onlyChanged"
   },
