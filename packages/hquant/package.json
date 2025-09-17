@@ -1,6 +1,6 @@
 {
   "name": "hquant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "indicators and strategies",
   "keywords": [
     "quant",
@@ -37,13 +37,13 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^24.3.3",
     "babel-jest": "^29.7.0",
+    "esbuild": "^0.25.9",
     "ts-jest": "^29.4.1",
     "tsup": "^8.5.0",
     "tsup-node": "^0.1.0",
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "dayjs": "^1.11.13",
-    "esbuild": "^0.25.9"
+    "dayjs": "^1.11.13"
   }
 }
