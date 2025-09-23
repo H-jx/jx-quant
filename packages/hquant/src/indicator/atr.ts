@@ -27,13 +27,7 @@ export class ATR implements Indicator {
       Math.abs(curr.low - prev.close)
     );
   }
-
-  add(data: Kline) {
-    this.buffer.push(data);
-    if (this.buffer.size() < this.period) {
-      this.result.push(NaN);
-      return;
-    }
+  calc(): number {
     let trSum = 0;
     for (let i = 0; i < this.period; i++) {
       const curr = this.buffer.get(i);
@@ -41,13 +35,21 @@ export class ATR implements Indicator {
       trSum += this.getTrueRange(curr, prev);
     }
     const atr = trSum / this.period;
-    this.result.push(atr);
+    return atr;
+  }
+  add(data: Kline) {
+    this.buffer.push(data);
+    if (this.buffer.size() < this.period) {
+      this.result.push(NaN);
+      return;
+    }
+    this.result.push(this.calc());
   }
 
   updateLast(data: Kline) {
     if (this.buffer.size() === 0) return;
     this.buffer.update(this.buffer.size() - 1, data);
-    this.add(data);
+    this.result.update(this.result.size() - 1, this.calc());
   }
 
   getValue(index: number = -1): number {
