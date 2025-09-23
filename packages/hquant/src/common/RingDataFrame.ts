@@ -3,11 +3,11 @@
 import { TypedRingBuffer } from './TypedRingBuffer';
 import { CircularQueue } from './CircularQueue';
 
-export type DataFrameSchema = { [key: string]: 'float' | 'int' | 'string' };
-export type DataFrameRow = { [key: string]: number | string };
+export type DataFrameSchema = { [key: string]: 'float' | 'int' | 'string' | 'date' };
+export type DataFrameRow = { [key: string]: number | string | Date };
 
 export class RingDataFrame<T extends DataFrameRow = DataFrameRow> {
-  private columns: Map<string, TypedRingBuffer | CircularQueue<string>>;
+  private columns: Map<string, TypedRingBuffer | CircularQueue<string | Date>>;
   private capacity: number;
 
   constructor(schema: DataFrameSchema, capacity: number) {
@@ -16,6 +16,8 @@ export class RingDataFrame<T extends DataFrameRow = DataFrameRow> {
     for (const key in schema) {
       if (schema[key] === 'string') {
         this.columns.set(key, new CircularQueue<string>(capacity));
+      } else if (schema[key] === 'date') {
+        this.columns.set(key, new CircularQueue<Date>(capacity));
       } else {
         this.columns.set(key, new TypedRingBuffer(schema[key] as 'float' | 'int', capacity));
       }
