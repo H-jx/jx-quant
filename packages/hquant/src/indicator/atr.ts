@@ -48,6 +48,9 @@ export class ATR implements Indicator {
 
   updateLast(data: Kline) {
     if (this.buffer.size() === 0) return;
+    if (this.buffer.size() < this.period) {
+      return;
+    }
     this.buffer.update(this.buffer.size() - 1, data);
     this.result.update(this.result.size() - 1, this.calc());
   }
