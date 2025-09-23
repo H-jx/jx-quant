@@ -70,7 +70,9 @@ export class CircularQueue<T> {
   getLast(): T {
     return this.get(this.size() - 1);
   }
-
+  get length() {
+    return this.size();
+  }
   /**
   * 迭代器支持
   */
