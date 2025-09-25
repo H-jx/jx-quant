@@ -42,8 +42,10 @@ export class RingDataFrame<T extends DataFrameRow = DataFrameRow> {
     return this.columns.get(name);
   }
 
-  getRow(index: number): T {
-    if (index < 0 || index >= this.length) throw new Error('Index out of bounds');
+  getRow(index: number): T | undefined {
+    if (index < 0 || index >= this.length) {
+      return undefined;
+    }
     const row: any = {};
     for (const [key, col] of this.columns) {
       row[key] = col.get(index);
