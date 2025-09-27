@@ -36,7 +36,7 @@ export interface Indicator<T extends (Kline | number) = Kline> {
      * 获取指标值
      * @index -1 代表获取倒数第一个值
      */
-    getValue(index?: number): number | Record<string, number | number[]>;
+    getValue(index?: number): number | Record<string, number | number[] | Record<string, number>> | null | undefined;
 }
 
 export type Signal = 'BUY' | 'SELL' | null | undefined; // 交易信号

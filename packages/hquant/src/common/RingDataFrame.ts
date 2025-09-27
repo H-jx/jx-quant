@@ -23,7 +23,9 @@ export class RingDataFrame<T extends DataFrameRow = DataFrameRow> {
       }
     }
   }
-
+  push(row: T) {
+    this.append(row);
+  }
   append(row: T) {
     for (const key of this.columns.keys()) {
       const col = this.columns.get(key)!;
@@ -41,7 +43,9 @@ export class RingDataFrame<T extends DataFrameRow = DataFrameRow> {
   getCol(name: string): TypedRingBuffer | CircularQueue<any> | undefined {
     return this.columns.get(name);
   }
-
+  get(index: number) {
+    return this.getRow(index);
+  }
   getRow(index: number): T | undefined {
     if (index < 0 || index >= this.length) {
       return undefined;
