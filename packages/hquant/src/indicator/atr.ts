@@ -25,12 +25,12 @@ export class ATR implements Indicator {
   }
   calc(): number {
     let trSum = 0;
-    for (let i = 0; i < this.period; i++) {
+    for (let i = 1; i < this.period; i++) {
       const curr = this.buffer.get(i);
-      const prev = i > 0 ? this.buffer.get(i - 1) : undefined;
+      const prev = this.buffer.get(i - 1);
       trSum += this.getTrueRange(curr, prev);
     }
-    const atr = trSum / this.period;
+    const atr = trSum;
     return atr;
   }
   add(data: Kline) {
