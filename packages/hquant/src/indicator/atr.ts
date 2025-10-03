@@ -20,12 +20,8 @@ export class ATR implements Indicator {
 
   // 计算单个K线的真实波幅
   private getTrueRange(curr: Kline, prev?: Kline): number {
-    if (!prev) return curr.high - curr.low;
-    return Math.max(
-      curr.high - curr.low,
-      Math.abs(curr.high - prev.close),
-      Math.abs(curr.low - prev.close)
-    );
+    if (!prev || prev.close === 0) return 0;
+    return (curr.close - prev.close) / prev.close;
   }
   calc(): number {
     let trSum = 0;
