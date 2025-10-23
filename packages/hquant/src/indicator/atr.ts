@@ -20,21 +20,17 @@ export class ATR implements Indicator {
 
   // 计算单个K线的真实波幅
   private getTrueRange(curr: Kline, prev?: Kline): number {
-    if (!prev) return curr.high - curr.low;
-    return Math.max(
-      curr.high - curr.low,
-      Math.abs(curr.high - prev.close),
-      Math.abs(curr.low - prev.close)
-    );
+    if (!prev || prev.close === 0) return 0;
+    return (curr.close - prev.close) / prev.close;
   }
   calc(): number {
     let trSum = 0;
-    for (let i = 0; i < this.period; i++) {
+    for (let i = 1; i < this.period; i++) {
       const curr = this.buffer.get(i);
-      const prev = i > 0 ? this.buffer.get(i - 1) : undefined;
+      const prev = this.buffer.get(i - 1);
       trSum += this.getTrueRange(curr, prev);
     }
-    const atr = trSum / this.period;
+    const atr = trSum;
     return atr;
   }
   add(data: Kline) {
