@@ -3,12 +3,10 @@
 //! 供 Go、Python 等语言通过 CGO/ctypes 调用
 
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_double, c_int, c_long};
-use std::ptr;
 
-use crate::indicators::{Indicator, MA, BOLL, RSI, MACD, ATR, VRI, BollResult, MacdResult};
-use crate::indicators::ma::KlineField;
+use crate::indicators::{Indicator, MA, BOLL, RSI, MACD, ATR, VRI, KlineField};
 use crate::kline::{Kline, KlineFrame};
 
 /// HQuant 上下文

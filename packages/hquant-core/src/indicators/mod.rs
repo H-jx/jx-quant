@@ -1,13 +1,13 @@
 //! 技术指标模块
 
-mod ma;
+pub mod ma;
 mod boll;
 mod rsi;
 mod macd;
 mod atr;
 mod vri;
 
-pub use ma::MA;
+pub use ma::{MA, KlineField};
 pub use boll::BOLL;
 pub use rsi::RSI;
 pub use macd::MACD;

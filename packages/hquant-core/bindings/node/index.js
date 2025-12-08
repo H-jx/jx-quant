@@ -1,8 +1,7 @@
 /**
  * hquant-core Node.js 绑定
  *
- * 注意: 这是一个占位文件，实际实现需要使用 napi-rs 构建
- * 运行 `pnpm build` 后会生成 .node 文件
+ * 注意: 运行 `cargo build --release` 后会生成 .node 文件
  */
 
 const path = require('path');
@@ -20,6 +19,7 @@ const platforms = [
 for (const platform of platforms) {
   try {
     nativeBinding = require(path.join(__dirname, platform));
+    console.log('[hquant-core] Native module loaded:', platform);
     break;
   } catch (e) {
     loadErrors.push(e.message);
