@@ -14,17 +14,20 @@
 
 ```
 src/
+├── index.ts                  # 入口 + 工厂函数
 ├── types.ts                  # 核心类型定义
 ├── utils.ts                  # 工具函数
 ├── BasePublicAdapter.ts      # 公共适配器基类（无需认证）
 ├── BaseTradeAdapter.ts       # 交易适配器基类（需要认证）
-├── exchange/
-│   ├── OkxPublicAdapter.ts   # OKX 公共适配器
-│   ├── OkxTradeAdapter.ts    # OKX 交易适配器
-│   ├── BinancePublicAdapter.ts # Binance 公共适配器
-│   ├── BinanceTradeAdapter.ts  # Binance 交易适配器
-│   └── index.ts
-└── index.ts                  # 入口 + 工厂函数
+└── exchange/
+  ├── Binance/
+  │   ├── BinancePublicAdapter.ts # Binance 公共适配器
+  │   ├── BinanceTradeAdapter.ts  # Binance 交易适配器
+  │   └── types.ts                # Binance 的数据类型
+  └── okx/
+    ├── OkxPublicAdapter.ts     # OKX 公共适配器
+    ├── OkxTradeAdapter.ts      # OKX 交易适配器
+    └── types.ts                # OKX 的数据类型
 ```
 
 ## 适配器分类
@@ -81,11 +84,10 @@ interface SymbolInfo {
   stepSize: string;         // 最小数量变动: "0.001"
   minQty: string;           // 最小下单数量
   maxQty: string;           // 最大下单数量
-  minNotional?: string;     // 最小下单金额
   quantityPrecision: number;// 数量精度
   pricePrecision: number;   // 价格精度
-  contractMultiplier?: number; // 合约乘数（delivery）
-  tradable: boolean;        // 是否可交易
+  status: number;           // 1: 可用 2: 不可用
+  raw: string;              // 补充其他原始数据(json text)
 }
 ```
 

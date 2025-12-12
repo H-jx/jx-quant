@@ -3,6 +3,7 @@
  */
 
 // ============ 基础枚举 ============
+export type ExchangeName = 'okx' | 'binance';
 
 /** 交易方向 */
 export type Side = 'buy' | 'sell';
@@ -62,7 +63,7 @@ export interface SymbolInfo {
   /** 是否可交易 */
   tradable: boolean;
   /** 原始数据 */
-  raw?: unknown;
+  raw?: string;
 }
 
 // ============ 账户和余额 ============
