@@ -98,12 +98,11 @@ interface PlaceOrderParams {
   symbol: string;           // 交易对（统一格式）
   tradeType: TradeType;     // 交易类型
   side: 'buy' | 'sell';     // 交易方向
-  orderType: 'limit' | 'market'; // 订单类型
+  orderType: 'limit' | 'market' | 'algos' | 'maker-only'; // 订单类型
   quantity: number;         // 下单数量
   price?: number;           // 价格（限价单必填）
   positionSide?: 'long' | 'short'; // 持仓方向（合约必填）
   leverage?: number;        // 杠杆倍数（合约）
-  reduceOnly?: boolean;     // 是否只减仓
   clientOrderId?: string;   // 客户端订单ID
 }
 ```
@@ -170,8 +169,9 @@ interface ITradeAdapter {
   readonly name: string;
   readonly publicAdapter: IPublicAdapter;  // 组合的公共适配器
 
-  // 初始化/销毁
+  // 初始化
   init(): Promise<void>;
+  // 销毁（gc语言需要）
   destroy(): Promise<void>;
 
   // 账户信息
@@ -200,7 +200,7 @@ interface ITradeAdapter {
 ### 仅查询市场数据（无需认证）
 
 ```typescript
-import { createPublicAdapter } from 'h-trader-adapter';
+import { createPublicAdapter } from 'hquant-adapter';
 
 // 创建公共适配器（无需 API Key）
 const publicAdapter = createPublicAdapter('binance');
@@ -221,7 +221,7 @@ console.log('交易对数量:', symbols.length);
 ### 交易操作（需要认证）
 
 ```typescript
-import { createTradeAdapter } from 'h-trader-adapter';
+import { createTradeAdapter } from 'hquant-adapter';
 
 // 创建交易适配器
 const tradeAdapter = createTradeAdapter('okx', {
@@ -231,8 +231,8 @@ const tradeAdapter = createTradeAdapter('okx', {
   simulated: false,
 });
 
-// 初始化
-await tradeAdapter.init();
+// 初始化加载symbols信息并缓存
+await tradeAdapter.loadSymbols();
 
 // 获取余额
 const balances = await tradeAdapter.getBalance('futures');
@@ -261,7 +261,7 @@ if (result.success) {
 ### 共享公共适配器
 
 ```typescript
-import { createPublicAdapter, createTradeAdapter } from 'h-trader-adapter';
+import { createPublicAdapter, createTradeAdapter } from 'hquant-adapter';
 
 // 创建共享的公共适配器
 const publicAdapter = createPublicAdapter('binance');
