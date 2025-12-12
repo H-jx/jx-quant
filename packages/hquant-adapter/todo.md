@@ -18,7 +18,7 @@ src/
 ├── utils.ts                  # 工具函数
 ├── BasePublicAdapter.ts      # 公共适配器基类（无需认证）
 ├── BaseTradeAdapter.ts       # 交易适配器基类（需要认证）
-├── adapters/
+├── exchange/
 │   ├── OkxPublicAdapter.ts   # OKX 公共适配器
 │   ├── OkxTradeAdapter.ts    # OKX 交易适配器
 │   ├── BinancePublicAdapter.ts # Binance 公共适配器
@@ -463,6 +463,6 @@ export class NewExchangeTradeAdapter extends BaseTradeAdapter {
 
 ## API 文档参考
 
-- OKX: https://www.okx.com/docs-v5/zh/#order-book-trading-trade
-- Binance USDM: https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/trade/rest-api
-- Binance COINM: https://developers.binance.com/docs/zh-CN/derivatives/coin-margined-futures/trade
+- OKX: https://www.okx.com/docs-v5/zh/#public-data
+- Binance USDM: https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/websocket-api-general-info
+- Binance COINM: https://developers.binance.com/docs/zh-CN/derivatives/coin-margined-futures/websocket-api-general-info
