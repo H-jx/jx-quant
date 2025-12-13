@@ -1,0 +1,42 @@
+{
+  "name": "@jx-quant/etrader",
+  "version": "0.1.0",
+  "description": "多平台交易适配器 - 抹平 OKX/Binance 等交易所的 API 差异，提供统一的交易接口",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "binance": "^3.1.5",
+    "https-proxy-agent": "^7.0.6",
+    "okx-api": "^3.0.12",
+    "socks-proxy-agent": "^8.0.5"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "exchange",
+    "trading",
+    "binance",
+    "okx",
+    "adapter"
+  ],
+  "license": "MIT"
+}

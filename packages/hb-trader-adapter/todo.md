@@ -1,4 +1,4 @@
-# h-trader-adapter 技术文档
+# 一句话描述目的
 
 多平台交易适配器 - 抹平 OKX/Binance 等交易所的 API 差异，提供统一的交易接口。
 
@@ -9,6 +9,87 @@
 3. **统一格式** - 返回统一的数据结构
 4. **可扩展** - 方便添加新交易所支持
 5. **职责分离** - 公共 API 与交易 API 分离，支持无认证查询
+
+## 依赖
+
+- `okx-api` - OKX API 客户端
+- `binance` - Binance API 客户端
+
+## API 文档参考
+
+- OKX: https://www.okx.com/docs-v5/zh/#public-data
+- Binance USDM: https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/websocket-api-general-info
+- Binance COINM: https://developers.binance.com/docs/zh-CN/derivatives/coin-margined-futures/websocket-api-general-info
+
+## 代码参考
+/Users/hubo/Work/Coding/MyProject/auto-trader-node/src/exchange/binance
+/Users/hubo/Work/Coding/MyProject/auto-trader-node/src/exchange/okx
+/Users/hubo/Work/Coding/MyProject/auto-trader-node/src/module/order/order.controller.ts
+
+
+## 代码风格
+显示的返回成功结果和失败结果，避免try catch, 参考go，rust
+
+### TradeType - 交易类型（仅供参考）
+```typescript
+type TradeType = 'spot' | 'futures' | 'delivery';
+```
+
+| 类型 | 说明 | OKX 对应 | Binance 对应 |
+|------|------|----------|--------------|
+| spot | 现货 | SPOT | Spot |
+| futures | U本位永续 | SWAP | USDM Futures |
+| delivery | 币本位交割 | FUTURES | COINM Futures |
+
+### SymbolInfo - 交易对信息（仅供参考）
+
+```typescript
+interface SymbolInfo {
+  symbol: string;           // 统一格式: BTC-USDT
+  rawSymbol: string;        // 原始格式: BTCUSDT (Binance) / BTC-USDT-SWAP (OKX)
+  baseCurrency: string;     // 基础货币: BTC
+  quoteCurrency: string;    // 计价货币: USDT
+  tradeType: TradeType;
+  tickSize: string;         // 最小价格变动: "0.01"
+  stepSize: string;         // 最小数量变动: "0.001"
+  minQty: string;           // 最小下单数量
+  maxQty: string;           // 最大下单数量
+  quantityPrecision: number;// 数量精度
+  pricePrecision: number;   // 价格精度
+  status: number;           // 1: 可用 2: 不可用
+  raw: string;              // 补充其他原始数据(json text)
+}
+```
+
+### PlaceOrderParams - 下单参数（仅供参考）
+
+```typescript
+interface PlaceOrderParams {
+  symbol: string;           // 交易对（统一格式）
+  tradeType: TradeType;     // 交易类型
+  side: 'buy' | 'sell';     // 交易方向
+  orderType: 'limit' | 'market' | 'algos' | 'maker-only'; // 订单类型
+  quantity: number;         // 下单数量
+  price?: number;           // 价格（限价单必填）
+  positionSide?: 'long' | 'short'; // 持仓方向（合约必填）
+  leverage?: number;        // 杠杆倍数（合约）
+  clientOrderId?: string;   // 客户端订单ID
+}
+```
+
+### PlaceOrderResult - 下单结果（仅供参考）
+
+```typescript
+interface PlaceOrderResult {
+  success: boolean;         // 是否成功
+  order?: Order;            // 订单信息（成功时）
+  code?: string;            // 错误码（失败时）
+  message?: string;         // 错误信息（失败时）
+  raw?: unknown;            // 原始响应
+}
+```
+
+采用 Result 模式而非异常，强制调用方处理成功/失败两种情况。
 
 ## 项目结构
 
@@ -59,67 +140,7 @@ src/
 
 ## 核心类型
 
-### TradeType - 交易类型
 
-```typescript
-type TradeType = 'spot' | 'futures' | 'delivery';
-```
-
-| 类型 | 说明 | OKX 对应 | Binance 对应 |
-|------|------|----------|--------------|
-| spot | 现货 | SPOT | Spot |
-| futures | U本位永续 | SWAP | USDM Futures |
-| delivery | 币本位交割 | FUTURES | COINM Futures |
-
-### SymbolInfo - 交易对信息
-
-```typescript
-interface SymbolInfo {
-  symbol: string;           // 统一格式: BTC-USDT
-  rawSymbol: string;        // 原始格式: BTCUSDT (Binance) / BTC-USDT-SWAP (OKX)
-  baseCurrency: string;     // 基础货币: BTC
-  quoteCurrency: string;    // 计价货币: USDT
-  tradeType: TradeType;
-  tickSize: string;         // 最小价格变动: "0.01"
-  stepSize: string;         // 最小数量变动: "0.001"
-  minQty: string;           // 最小下单数量
-  maxQty: string;           // 最大下单数量
-  quantityPrecision: number;// 数量精度
-  pricePrecision: number;   // 价格精度
-  status: number;           // 1: 可用 2: 不可用
-  raw: string;              // 补充其他原始数据(json text)
-}
-```
-
-### PlaceOrderParams - 下单参数
-
-```typescript
-interface PlaceOrderParams {
-  symbol: string;           // 交易对（统一格式）
-  tradeType: TradeType;     // 交易类型
-  side: 'buy' | 'sell';     // 交易方向
-  orderType: 'limit' | 'market' | 'algos' | 'maker-only'; // 订单类型
-  quantity: number;         // 下单数量
-  price?: number;           // 价格（限价单必填）
-  positionSide?: 'long' | 'short'; // 持仓方向（合约必填）
-  leverage?: number;        // 杠杆倍数（合约）
-  clientOrderId?: string;   // 客户端订单ID
-}
-```
-
-### PlaceOrderResult - 下单结果
-
-```typescript
-interface PlaceOrderResult {
-  success: boolean;         // 是否成功
-  order?: Order;            // 订单信息（成功时）
-  code?: string;            // 错误码（失败时）
-  message?: string;         // 错误信息（失败时）
-  raw?: unknown;            // 原始响应
-}
-```
-
-采用 Result 模式而非异常，强制调用方处理成功/失败两种情况。
 
 ### 配置类型
 
@@ -200,7 +221,7 @@ interface ITradeAdapter {
 ### 仅查询市场数据（无需认证）
 
 ```typescript
-import { createPublicAdapter } from 'hquant-adapter';
+import { createPublicAdapter } from 'hb-trader-adapter';
 
 // 创建公共适配器（无需 API Key）
 const publicAdapter = createPublicAdapter('binance');
@@ -221,7 +242,7 @@ console.log('交易对数量:', symbols.length);
 ### 交易操作（需要认证）
 
 ```typescript
-import { createTradeAdapter } from 'hquant-adapter';
+import { createTradeAdapter } from 'hb-trader-adapter';
 
 // 创建交易适配器
 const tradeAdapter = createTradeAdapter('okx', {
@@ -261,7 +282,7 @@ if (result.success) {
 ### 共享公共适配器
 
 ```typescript
-import { createPublicAdapter, createTradeAdapter } from 'hquant-adapter';
+import { createPublicAdapter, createTradeAdapter } from 'hb-trader-adapter';
 
 // 创建共享的公共适配器
 const publicAdapter = createPublicAdapter('binance');
