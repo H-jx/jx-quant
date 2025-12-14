@@ -5,6 +5,7 @@ dist/
 coverage/
 *.log
 .env
+.env.local
 debug
 release
 .rustc_info.json

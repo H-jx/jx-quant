@@ -19,7 +19,11 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "example:public": "tsx example/public.ts",
+    "example:trader": "tsx example/trader.ts",
+    "example": "npm run example:public && npm run example:trader"
   },
   "dependencies": {
     "binance": "^3.1.5",
@@ -28,8 +32,11 @@
     "socks-proxy-agent": "^8.0.5"
   },
   "devDependencies": {
+    "dotenv": "^16.4.5",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
+    "tsx": "^4.7.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.3"
   },
   "keywords": [
     "exchange",

@@ -2,8 +2,19 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import { SocksProxyAgent } from 'socks-proxy-agent'
 import type { Agent } from 'node:http'
 import type { Exchange, TradeType, Result, ErrorInfo, AdapterOptions } from './types'
-import { Err } from './types'
-import { InstrumentType } from 'okx-api'
+import { InstrumentType, TradeMode } from 'okx-api'
+
+
+// ============================================================================
+// Result 模式 - Go/Rust 风格的错误处理
+// ============================================================================
+export function Ok<T>(data: T): Result<T, never> {
+  return { ok: true, data }
+}
+
+export function Err<E = ErrorInfo>(error: E): Result<never, E> {
+  return { ok: false, error }
+}
 
 // ============================================================================
 // 精度处理
@@ -210,7 +221,7 @@ export function getOkxInstType(tradeType: TradeType): InstrumentType {
 /**
  * 获取 OKX 的 tdMode (交易模式)
  */
-export function getOkxTdMode(tradeType: TradeType, marginMode: 'cross' | 'isolated' = 'cross'): string {
+export function getOkxTdMode(tradeType: TradeType, marginMode: 'cross' | 'isolated' = 'cross'): TradeMode {
   if (tradeType === 'spot') {
     return 'cash'
   }
@@ -288,10 +299,10 @@ export async function wrapAsync<T>(
     const data = await fn()
     return { ok: true, data }
   } catch (e) {
-    const error = e as Error & { code?: string; data?: unknown }
+    const error = e as Error & { code?: string; data?: unknown; msg?: string }
     return Err({
       code: error.code || errorCode,
-      message: error.message || 'Unknown error',
+      message: error.message || error.msg || 'Unknown error',
       raw: error.data || error
     })
   }

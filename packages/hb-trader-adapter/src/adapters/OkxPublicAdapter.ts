@@ -1,4 +1,5 @@
 import { RestClient } from 'okx-api'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   Exchange,
   TradeType,
@@ -8,8 +9,10 @@ import type {
   OrderBook,
   AdapterOptions
 } from '../types'
-import { Ok, Err, SymbolStatus } from '../types'
+import { SymbolStatus } from '../types'
+import { Ok, Err } from '../utils'
 import { BasePublicAdapter } from '../BasePublicAdapter'
+import { ErrorCodes }from '../errorCodes'
 import {
   unifiedToOkx,
   okxToUnified,
@@ -63,18 +66,15 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
   constructor(options?: AdapterOptions) {
     super()
-    // 公共 API 不需要认证，但 okx-api 在设置 httpsAgent 时需要提供空的认证信息
+    const requestOptions: AxiosRequestConfig = {}
     const agent = createProxyAgent(options)
+
     if (agent) {
-      // 当有代理时，需要提供空的 API 配置以避免 okx-api 的校验
-      this.client = new RestClient({
-        apiKey: '',
-        apiSecret: '',
-        apiPass: ''
-      }, undefined)
-    } else {
-      this.client = new RestClient()
+      requestOptions.httpAgent = agent
+      requestOptions.httpsAgent = agent
     }
+
+    this.client = new RestClient({}, requestOptions)
   }
 
   /**
@@ -103,7 +103,7 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'SYMBOL_NOT_FOUND',
+        code: ErrorCodes.SYMBOL_NOT_FOUND,
         message: `Symbol ${symbol} not found`
       })
     }
@@ -159,7 +159,7 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'PRICE_NOT_FOUND',
+        code: ErrorCodes.PRICE_NOT_FOUND,
         message: `Price for ${symbol} not found`
       })
     }
@@ -186,7 +186,7 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'TICKER_NOT_FOUND',
+        code: ErrorCodes.TICKER_NOT_FOUND,
         message: `Ticker for ${symbol} not found`
       })
     }
@@ -196,12 +196,11 @@ export class OkxPublicAdapter extends BasePublicAdapter {
     // 这里暂时返回 0
     return Ok({
       symbol,
-      lastPrice: ticker.last,
-      highPrice: ticker.high24h,
-      lowPrice: ticker.low24h,
+      last: ticker.last,
+      high: ticker.high24h,
+      low: ticker.low24h,
       volume: ticker.vol24h,
       quoteVolume: ticker.volCcy24h,
-      priceChangePercent: '0',
       timestamp: parseInt(ticker.ts)
     })
   }
@@ -229,7 +228,7 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'ORDERBOOK_NOT_FOUND',
+        code: ErrorCodes.ORDERBOOK_NOT_FOUND,
         message: `OrderBook for ${symbol} not found`
       })
     }
@@ -267,7 +266,7 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'MARK_PRICE_NOT_FOUND',
+        code: ErrorCodes.MARK_PRICE_NOT_FOUND,
         message: `Mark price for ${symbol} not found`
       })
     }

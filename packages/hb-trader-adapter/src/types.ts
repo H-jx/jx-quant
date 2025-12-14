@@ -12,14 +12,6 @@ export interface ErrorInfo {
   raw?: unknown
 }
 
-export function Ok<T>(data: T): Result<T, never> {
-  return { ok: true, data }
-}
-
-export function Err<E = ErrorInfo>(error: E): Result<never, E> {
-  return { ok: false, error }
-}
-
 // ============================================================================
 // 交易所和交易类型
 // ============================================================================
@@ -156,7 +148,7 @@ export type OrderStatus =
 /**
  * 下单参数
  */
-export interface PlaceOrderParams {
+export interface PlaceOrderParams<TQuantity = string | number, TPrice = string | number> {
   /** 交易对 (统一格式: BTC-USDT) */
   symbol: string
   /** 交易类型 */
@@ -166,9 +158,9 @@ export interface PlaceOrderParams {
   /** 订单类型 */
   orderType: OrderType
   /** 下单数量 */
-  quantity: string
+  quantity: TQuantity
   /** 价格 (限价单必填) */
-  price?: string
+  price?: TPrice
   /** 持仓方向 (合约必填) */
   positionSide?: PositionSide
   /** 杠杆倍数 (合约) */
@@ -210,9 +202,9 @@ export interface Order {
   /** 已成交数量 */
   filledQty: string
   /** 创建时间 */
-  createTime: number
+  createTime?: number
   /** 更新时间 */
-  updateTime: number
+  updateTime?: number
   /** 原始数据 */
   raw?: unknown
 }
@@ -228,17 +220,15 @@ export interface Ticker {
   /** 交易对 */
   symbol: string
   /** 最新价 */
-  lastPrice: string
+  last: string
   /** 24h最高价 */
-  highPrice: string
+  high: string
   /** 24h最低价 */
-  lowPrice: string
+  low: string
   /** 24h成交量 */
   volume: string
   /** 24h成交额 */
   quoteVolume: string
-  /** 24h涨跌幅 */
-  priceChangePercent: string
   /** 时间戳 */
   timestamp: number
 }
@@ -272,6 +262,11 @@ export interface AdapterOptions {
   httpsProxy?: string
   /** SOCKS 代理 URL (例如: socks://127.0.0.1:7890) */
   socksProxy?: string
+}
+
+export type TradeAdapterInit<TPublicAdapter> = ApiCredentials & AdapterOptions & {
+  /** 共享的公共适配器实例 */
+  publicAdapter?: TPublicAdapter
 }
 
 // ============================================================================
@@ -324,9 +319,6 @@ export interface IPublicAdapter {
 
   /** 交易所原始格式 -> 统一格式 */
   fromRawSymbol(rawSymbol: string, tradeType: TradeType): string
-
-  /** 清除缓存 */
-  clearCache(): void
 }
 
 // ============================================================================
@@ -407,6 +399,7 @@ export interface ITradeAdapter extends IPublicAdapter {
     params: PlaceOrderParams,
     symbolInfo: SymbolInfo,
     balances: Balance[],
+    currentPrice: number,
     positions?: Position[]
   ): ValidationResult
 

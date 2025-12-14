@@ -15,8 +15,9 @@ import type {
   Ticker,
   OrderBook
 } from './types'
-import { Ok, Err } from './types'
+import { Ok, Err } from './utils'
 import { formatPrice, formatQuantity, generateClientOrderId } from './utils'
+import { ErrorCodes } from './errorCodes'
 
 /**
  * 交易 API 适配器基类
@@ -87,9 +88,6 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     return this.publicAdapter.fromRawSymbol(rawSymbol, tradeType)
   }
 
-  clearCache(): void {
-    this.publicAdapter.clearCache()
-  }
 
   // ============================================================================
   // 生命周期
@@ -109,14 +107,6 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
       }
     }
     return Ok(undefined)
-  }
-
-  /**
-   * 销毁适配器
-   * 清理资源和缓存
-   */
-  async destroy(): Promise<void> {
-    this.clearCache()
   }
 
   /**
@@ -146,60 +136,60 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
   /**
    * 校验下单参数
    */
-  validateOrderParams(params: PlaceOrderParams, symbolInfo: SymbolInfo): ValidationResult {
+  validateOrderParams(params: PlaceOrderParams<number, number>, symbolInfo: SymbolInfo): ValidationResult {
     // 基础参数检查
     if (!params.symbol) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'symbol is required' } }
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'symbol is required' } }
     }
 
     if (!params.tradeType) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'tradeType is required' } }
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'tradeType is required' } }
     }
 
     if (!params.side || !['buy', 'sell'].includes(params.side)) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'side must be buy or sell' } }
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'side must be buy or sell' } }
     }
 
     if (!params.orderType) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'orderType is required' } }
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'orderType is required' } }
     }
 
-    if (!params.quantity || parseFloat(params.quantity) <= 0) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'quantity must be greater than 0' } }
+    if (!params.quantity || params.quantity <= 0) {
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'quantity must be greater than 0' } }
     }
 
-    if (params.orderType === 'limit' && (!params.price || parseFloat(params.price) <= 0)) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'price is required for limit order' } }
+    if (params.orderType === 'limit' && (!params.price || params.price <= 0)) {
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'price is required for limit order' } }
     }
 
     if (params.tradeType !== 'spot' && !params.positionSide) {
-      return { valid: false, error: { code: 'INVALID_PARAMS', message: 'positionSide is required for futures/delivery' } }
+      return { valid: false, error: { code: ErrorCodes.INVALID_PARAMS, message: 'positionSide is required for futures/delivery' } }
     }
 
     // 交易对状态检查
     if (symbolInfo.status !== 1) {
       return {
         valid: false,
-        error: { code: 'SYMBOL_NOT_AVAILABLE', message: `${params.symbol} is not available for trading` }
+        error: { code: ErrorCodes.SYMBOL_NOT_AVAILABLE, message: `${params.symbol} is not available for trading` }
       }
     }
 
     // 数量范围检查
-    const quantity = parseFloat(params.quantity)
+    const quantity = params.quantity
     const minQty = parseFloat(symbolInfo.minQty)
     const maxQty = parseFloat(symbolInfo.maxQty)
 
     if (quantity < minQty) {
       return {
         valid: false,
-        error: { code: 'QUANTITY_TOO_SMALL', message: `Quantity ${quantity} is less than minimum ${minQty}` }
+        error: { code: ErrorCodes.QUANTITY_TOO_SMALL, message: `Quantity ${quantity} is less than minimum ${minQty}` }
       }
     }
 
     if (maxQty > 0 && quantity > maxQty) {
       return {
         valid: false,
-        error: { code: 'QUANTITY_TOO_LARGE', message: `Quantity ${quantity} is greater than maximum ${maxQty}` }
+        error: { code: ErrorCodes.QUANTITY_TOO_LARGE, message: `Quantity ${quantity} is greater than maximum ${maxQty}` }
       }
     }
 
@@ -210,14 +200,19 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
    * 校验余额是否充足
    */
   validateBalance(
-    params: PlaceOrderParams,
+    params: PlaceOrderParams<number, number>,
     symbolInfo: SymbolInfo,
     balances: Balance[],
+    currentPrice: number,
     positions?: Position[]
   ): ValidationResult {
-    const price = parseFloat(params.price || '0')
-    const quantity = parseFloat(params.quantity)
-
+    const quantity = params.quantity
+    let price: number
+    if (!params.price) {
+      price = currentPrice
+    } else {
+      price = params.price
+    }
     // 计算所需金额
     let required: number
     let asset: string
@@ -246,9 +241,9 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
             return {
               valid: false,
               error: {
-                code: 'INSUFFICIENT_POSITION',
-                message: `Insufficient position. Required: ${quantity}, Available: ${positionAmt}`
-              }
+                  code: ErrorCodes.INSUFFICIENT_POSITION,
+                  message: `Insufficient position. Required: ${quantity}, Available: ${positionAmt}`
+                }
             }
           }
         }
@@ -268,7 +263,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
       return {
         valid: false,
         error: {
-          code: 'INSUFFICIENT_BALANCE',
+          code: ErrorCodes.INSUFFICIENT_BALANCE,
           message: `Insufficient balance. Required: ${required} ${asset}, Available: ${available} ${asset}`
         }
       }
@@ -280,9 +275,13 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
   /**
    * 格式化下单参数 (精度对齐)
    */
-  formatOrderParams(params: PlaceOrderParams, symbolInfo: SymbolInfo): PlaceOrderParams {
-    const formatted = { ...params }
-
+  formatOrderParams(params: PlaceOrderParams<number, number>, symbolInfo: SymbolInfo): PlaceOrderParams<string, string> {
+    const { quantity, price, ...reset } = params
+    const formatted = {
+      ...reset,
+      quantity: '',
+      price: undefined as string | undefined,
+    }
     // 格式化数量
     formatted.quantity = formatQuantity(params.quantity, symbolInfo.stepSize)
 
@@ -306,11 +305,17 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
   /**
    * 下单 (带完整的前置校验流程)
    */
-  async placeOrder(params: PlaceOrderParams): Promise<Result<Order>> {
+  async placeOrder(params: PlaceOrderParams<number, number>): Promise<Result<Order>> {
     // 1. 获取交易对信息
-    const symbolResult = await this.getSymbolInfo(params.symbol, params.tradeType)
+    const [ symbolResult, priceResult ] = await Promise.all([
+      this.getSymbolInfo(params.symbol, params.tradeType),
+      this.getPrice(params.symbol, params.tradeType)
+    ])
     if (!symbolResult.ok) {
-      return symbolResult as Result<Order>
+      return Err(symbolResult.error)
+    }
+    if (!priceResult.ok) {
+      return Err(priceResult.error)
     }
     const symbolInfo = symbolResult.data
 
@@ -331,7 +336,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     }
 
     const positions = positionsResult.ok ? positionsResult.data : []
-    const balanceValidation = this.validateBalance(params, symbolInfo, balanceResult.data, positions)
+    const balanceValidation = this.validateBalance(params, symbolInfo, balanceResult.data, Number(priceResult.data), positions)
     if (!balanceValidation.valid) {
       return Err(balanceValidation.error!)
     }
@@ -343,7 +348,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     const formattedQty = parseFloat(formattedParams.quantity)
     if (formattedQty < parseFloat(symbolInfo.minQty)) {
       return Err({
-        code: 'QUANTITY_TOO_SMALL',
+        code: ErrorCodes.QUANTITY_TOO_SMALL,
         message: `Formatted quantity ${formattedQty} is less than minimum ${symbolInfo.minQty}`
       })
     }
@@ -356,7 +361,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
    * 批量下单
    * 注意：批量下单跳过余额校验，只做参数校验和格式化
    */
-  async placeOrders(paramsList: PlaceOrderParams[]): Promise<BatchPlaceOrderResult> {
+  async placeOrders(paramsList: PlaceOrderParams<number, number>[]): Promise<BatchPlaceOrderResult> {
     if (paramsList.length === 0) {
       return { successCount: 0, failedCount: 0, results: [] }
     }
@@ -401,7 +406,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
       const formattedQty = parseFloat(formattedParams.quantity)
       if (formattedQty < parseFloat(symbolInfo.minQty)) {
         results[i] = Err({
-          code: 'QUANTITY_TOO_SMALL',
+          code: ErrorCodes.QUANTITY_TOO_SMALL,
           message: `Formatted quantity ${formattedQty} is less than minimum ${symbolInfo.minQty}`
         })
         failedIndices.push(i)
@@ -459,13 +464,19 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
    * @deprecated 使用 placeOrder 方法，它已经包含完整流程
    */
   protected async prepareOrder(
-    params: PlaceOrderParams,
+    params: PlaceOrderParams<number, number>,
     options: { checkBalance?: boolean } = {}
   ): Promise<Result<{ params: PlaceOrderParams; symbolInfo: SymbolInfo }>> {
     // 1. 获取交易对信息
-    const symbolResult = await this.getSymbolInfo(params.symbol, params.tradeType)
+    const [ symbolResult, priceResult] = await Promise.all([
+      this.getSymbolInfo(params.symbol, params.tradeType),
+      this.getPrice(params.symbol, params.tradeType)
+    ])
     if (!symbolResult.ok) {
-      return symbolResult as Result<{ params: PlaceOrderParams; symbolInfo: SymbolInfo }>
+      return Err(symbolResult.error)
+    }
+    if (!priceResult.ok) {
+      return Err(priceResult.error)
     }
     const symbolInfo = symbolResult.data
 
@@ -490,7 +501,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
         }
       }
 
-      const balanceValidation = this.validateBalance(params, symbolInfo, balanceResult.data, positions)
+      const balanceValidation = this.validateBalance(params, symbolInfo, balanceResult.data, Number(priceResult.data), positions)
       if (!balanceValidation.valid) {
         return Err(balanceValidation.error!)
       }
@@ -503,18 +514,29 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     const formattedQty = parseFloat(formattedParams.quantity)
     if (formattedQty < parseFloat(symbolInfo.minQty)) {
       return Err({
-        code: 'QUANTITY_TOO_SMALL',
+        code: ErrorCodes.QUANTITY_TOO_SMALL,
         message: `Quantity ${formattedQty} is less than minimum ${symbolInfo.minQty}`
       })
     }
 
     if (parseFloat(symbolInfo.maxQty) > 0 && formattedQty > parseFloat(symbolInfo.maxQty)) {
       return Err({
-        code: 'QUANTITY_TOO_LARGE',
+        code: ErrorCodes.QUANTITY_TOO_LARGE,
         message: `Quantity ${formattedQty} is greater than maximum ${symbolInfo.maxQty}`
       })
     }
 
     return Ok({ params: formattedParams, symbolInfo })
   }
+
+
+  
+  /**
+   * 销毁适配器
+   * 清理资源和缓存
+   */
+  async destroy(): Promise<void> {
+    // this.publicAdapter.
+  }
+  
 }

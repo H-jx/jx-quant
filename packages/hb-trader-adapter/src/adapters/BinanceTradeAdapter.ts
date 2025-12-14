@@ -1,4 +1,18 @@
-import { MainClient, USDMClient, CoinMClient, FuturesOrderType, OrderTimeInForce, BooleanString, NewFuturesOrderParams, NewOrderResult } from 'binance'
+import {
+  MainClient,
+  USDMClient,
+  CoinMClient,
+  FuturesOrderType,
+  OrderTimeInForce,
+  BooleanString,
+  NewFuturesOrderParams,
+  NewOrderResult,
+  OrderType,
+  OrderSide,
+  SelfTradePreventionMode,
+  RestClientOptions
+} from 'binance'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   TradeType,
   Result,
@@ -9,13 +23,13 @@ import type {
   PlaceOrderParams,
   PositionSide,
   OrderStatus,
-  ApiCredentials,
-  AdapterOptions,
   IPublicAdapter,
-  BatchOrderLimits
+  BatchOrderLimits,
+  TradeAdapterInit
 } from '../types'
-import { Ok, Err } from '../types'
+import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
+import { ErrorCodes } from '../errorCodes'
 import {
   unifiedToBinance,
   parseBinanceSymbol,
@@ -38,8 +52,8 @@ interface BinanceOrderResponse {
   type?: string
   price: numberInString
   avgPrice?: numberInString
-  origQty: numberInString
-  executedQty: numberInString
+  origQty?: numberInString
+  executedQty?: numberInString
   time?: number
   updateTime?: number
   transactTime?: number
@@ -85,35 +99,71 @@ interface BinanceFuturesOrderResponse {
   executedQty: numberInString
   updateTime: number
 }
+export interface OrderFill {
+  price: numberInString;
+  qty: numberInString;
+  commission: numberInString;
+  commissionAsset: string;
+}
+export interface OrderResponseFull {
+  symbol: string;
+  orderId: number;
+  orderListId?: number;
+  clientOrderId: string;
+  transactTime: number;
+  price: numberInString;
+  origQty: numberInString;
+  executedQty: numberInString;
+  cummulativeQuoteQty: numberInString;
+  status: OrderStatus;
+  timeInForce: OrderTimeInForce;
+  type: OrderType;
+  side: OrderSide;
+  marginBuyBorrowAmount?: number;
+  marginBuyBorrowAsset?: string;
+  isIsolated?: boolean;
+  workingTime: number;
+  selfTradePreventionMode: SelfTradePreventionMode;
+  fills: OrderFill[];
+}
 
+type BinanceTradeAdapterParams = TradeAdapterInit<BinancePublicAdapter>
 /**
  * Binance 交易 API 适配器
  * 使用组合模式，公共 API 委托给 BinancePublicAdapter
  */
 export class BinanceTradeAdapter extends BaseTradeAdapter {
+  static publicAdapter = new BinancePublicAdapter()
   /** 组合的公共适配器 */
-  readonly publicAdapter: IPublicAdapter
+  readonly publicAdapter: IPublicAdapter = new BinancePublicAdapter()
 
   protected spotClient: MainClient
   protected futuresClient: USDMClient
   protected deliveryClient: CoinMClient
 
-  constructor(credentials: ApiCredentials, options?: AdapterOptions, publicAdapter?: BinancePublicAdapter) {
+  constructor({ apiKey, apiSecret, httpsProxy, socksProxy, publicAdapter }: BinanceTradeAdapterParams) {
     super()
-    const config: Record<string, unknown> = {
-      api_key: credentials.apiKey,
-      api_secret: credentials.apiSecret
+    const config: RestClientOptions = {
+      api_key: apiKey,
+      api_secret: apiSecret
     }
-    const agent = createProxyAgent(options)
-    if (agent) {
-      config.httpsAgent = agent
-    }
-    this.spotClient = new MainClient(config)
-    this.futuresClient = new USDMClient(config)
-    this.deliveryClient = new CoinMClient(config)
+    const requestOptions: AxiosRequestConfig = {}
 
-    // 使用传入的公共适配器或创建新实例
-    this.publicAdapter = publicAdapter || new BinancePublicAdapter(options)
+
+    if (httpsProxy || socksProxy) {
+      const agent = createProxyAgent({ httpsProxy, socksProxy })
+      requestOptions.httpAgent = agent
+      requestOptions.httpsAgent = agent
+    }
+
+    this.spotClient = new MainClient(config, requestOptions)
+    this.futuresClient = new USDMClient(config, requestOptions)
+    this.deliveryClient = new CoinMClient(config, requestOptions)
+
+    if (BinanceTradeAdapter.publicAdapter === undefined) {
+      BinanceTradeAdapter.publicAdapter = publicAdapter || new BinancePublicAdapter({ httpsProxy, socksProxy })
+    }
+    this.publicAdapter = BinanceTradeAdapter.publicAdapter
   }
 
   // ============================================================================
@@ -213,11 +263,11 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
 
     // 合约批量下单
     if (tradeType === 'futures') {
-      return this.batchPlaceFuturesOrders(paramsList, symbolInfoMap)
+      return this.batchPlaceFuturesOrders(paramsList)
     }
 
     if (tradeType === 'delivery') {
-      return this.batchPlaceDeliveryOrders(paramsList, symbolInfoMap)
+      return this.batchPlaceDeliveryOrders(paramsList)
     }
 
     return []
@@ -345,7 +395,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
   ): Promise<Result<void>> {
     if (tradeType === 'spot') {
       return Err({
-        code: 'INVALID_TRADE_TYPE',
+        code: ErrorCodes.INVALID_TRADE_TYPE,
         message: 'Cannot set leverage for spot trading'
       })
     }
@@ -397,7 +447,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
 
   private async getFuturesBalance(): Promise<Result<Balance[]>> {
     const result = await wrapAsync<BinanceFuturesBalanceResponse[]>(
-      () => this.futuresClient.getBalance(),
+      () => this.futuresClient.getBalanceV3(),
       'GET_FUTURES_BALANCE_ERROR'
     )
 
@@ -521,20 +571,20 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     const orderParams: {
       symbol: string
       side: 'BUY' | 'SELL'
-      type: string
-      quantity: string
-      price?: string
+      type: OrderType
+      quantity: number
+      price?: number
       newClientOrderId?: string
-      timeInForce?: string
+      timeInForce?: OrderTimeInForce
     } = {
       symbol: rawSymbol,
       side: params.side.toUpperCase() as 'BUY' | 'SELL',
-      type: this.mapOrderType(params.orderType),
-      quantity: params.quantity
+      type: this.mapOrderType(params.orderType) as OrderType,
+      quantity: Number(params.quantity)
     }
 
     if (params.orderType === 'limit' || params.orderType === 'maker-only') {
-      orderParams.price = params.price
+      orderParams.price = Number(params.price)
       orderParams.timeInForce = params.orderType === 'maker-only' ? 'GTX' : (params.timeInForce || 'GTC')
     }
 
@@ -542,15 +592,17 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
       orderParams.newClientOrderId = params.clientOrderId
     }
 
-    const result = await wrapAsync<BinanceOrderResponse>(
-      () => this.spotClient.submitNewOrder(orderParams as never),
+    const result = await wrapAsync<OrderResponseFull>(
+      () => this.spotClient.submitNewOrder(orderParams) as Promise<OrderResponseFull>,
       'PLACE_SPOT_ORDER_ERROR'
     )
 
     if (!result.ok) {
       return Err(result.error)
     }
-
+    if (result.data.origQty == undefined) {
+      return Err({ code: ErrorCodes.INVALID_ORDER_RESPONSE, message: `order ACK received, but full order data not available` });
+    }
     return Ok(this.transformSpotOrder(result.data))
   }
 
@@ -571,7 +623,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     } = {
       symbol: rawSymbol,
       side: params.side.toUpperCase() as 'BUY' | 'SELL',
-      type: this.mapOrderType(params.orderType),
+      type: this.mapOrderType(params.orderType) as FuturesOrderType,
       quantity: Number(params.quantity)
     }
 
@@ -612,27 +664,17 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     // 币本位合约需要将数量转换为张数
     let quantity = params.quantity
     if (symbolInfo.contractValue) {
-      const price = parseFloat(params.price || '0')
-      if (price > 0) {
-        const contracts = coinToContracts(params.symbol, parseFloat(params.quantity), price)
-        quantity = String(contracts)
+      const price = Number(params.price)
+      if (price && price > 0) {
+        const contracts = coinToContracts(params.symbol, Number(params.quantity), price)
+        quantity = contracts
       }
     }
 
-    const orderParams: {
-      symbol: string
-      side: 'BUY' | 'SELL'
-      positionSide?: 'LONG' | 'SHORT'
-      type: FuturesOrderType
-      quantity: number
-      price?: number
-      newClientOrderId?: string
-      timeInForce?: OrderTimeInForce
-      reduceOnly?: BooleanString
-    } = {
+    const orderParams: NewFuturesOrderParams<number> = {
       symbol: rawSymbol,
       side: params.side.toUpperCase() as 'BUY' | 'SELL',
-      type: this.mapOrderType(params.orderType),
+      type: this.mapOrderType(params.orderType) as FuturesOrderType,
       quantity: Number(quantity)
     }
 
@@ -670,16 +712,24 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
   // ============================================================================
 
   private async batchPlaceFuturesOrders(
-    paramsList: PlaceOrderParams[],
-    symbolInfoMap: Map<string, SymbolInfo>
+    paramsList: PlaceOrderParams[]
   ): Promise<Result<Order>[]> {
+    if (!Array.isArray(paramsList) ||!paramsList[0]) {
+      return []
+    }
+    const orderType = paramsList[0].tradeType
+    const allSymbolsResult = await BinanceTradeAdapter.publicAdapter.getAllSymbols(orderType)
+    if (!allSymbolsResult.ok) {
+      return paramsList.map(() => Err(allSymbolsResult.error))
+    }
     // 构建批量下单参数
     const batchOrders: NewFuturesOrderParams[] = paramsList.map(params => {
-      const key = `${params.symbol}:${params.tradeType}`
-      const symbolInfo = symbolInfoMap.get(key)!
-
+      const symboInfo = allSymbolsResult.data.find(s => s.symbol === params.symbol);
+      if (!symboInfo) {
+        throw new Error(`Symbol info not found for ${params.symbol} in batchPlaceFuturesOrders`);
+      }
       const orderParams: NewFuturesOrderParams = {
-        symbol: symbolInfo.rawSymbol,
+        symbol: symboInfo.rawSymbol,
         side: params.side.toUpperCase() as 'BUY' | 'SELL',
         type: this.mapOrderType(params.orderType),
         quantity: Number(params.quantity)
@@ -745,20 +795,30 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
   }
 
   private async batchPlaceDeliveryOrders(
-    paramsList: PlaceOrderParams[],
-    symbolInfoMap: Map<string, SymbolInfo>
+    paramsList: PlaceOrderParams[]
   ): Promise<Result<Order>[]> {
+
+    if (!Array.isArray(paramsList) ||!paramsList[0]) {
+      return []
+    }
+    const orderType = paramsList[0].tradeType
+    const allSymbolsResult = await BinanceTradeAdapter.publicAdapter.getAllSymbols(orderType)
+    if (!allSymbolsResult.ok) {
+      return paramsList.map(() => Err(allSymbolsResult.error))
+    }
     // 构建批量下单参数
     const batchOrders: NewFuturesOrderParams<string>[] = paramsList.map(params => {
-      const key = `${params.symbol}:${params.tradeType}`
-      const symbolInfo = symbolInfoMap.get(key)!
+      const symbolInfo = allSymbolsResult.data.find(s => s.symbol === params.symbol);
+      if (!symbolInfo) {
+        throw new Error(`Symbol info not found for ${params.symbol} in batchPlaceDeliveryOrders`);
+      }
 
       // 币本位合约需要将数量转换为张数
       let quantity = params.quantity
       if (symbolInfo.contractValue) {
-        const price = parseFloat(params.price || '0')
-        if (price > 0) {
-          quantity = String(coinToContracts(params.symbol, parseFloat(params.quantity), price))
+        const price = Number(params.price)
+        if (price && price > 0) {
+          quantity = coinToContracts(params.symbol, Number(params.quantity), price)
         }
       }
 
@@ -766,7 +826,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
         symbol: symbolInfo.rawSymbol,
         side: params.side.toUpperCase() as 'BUY' | 'SELL',
         type: this.mapOrderType(params.orderType),
-        quantity
+        quantity: String(quantity)
       }
 
       if (params.positionSide) {
@@ -774,7 +834,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
       }
 
       if (params.orderType === 'limit' || params.orderType === 'maker-only') {
-        orderParams.price = params.price
+        orderParams.price = String(params.price)
         orderParams.timeInForce = params.orderType === 'maker-only' ? 'GTX' : (params.timeInForce || 'GTC') as OrderTimeInForce
       }
 
@@ -847,8 +907,6 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
       avgPrice: String(data.avgPrice || data.price),
       quantity: String(data.origQty),
       filledQty: String(data.executedQty),
-      createTime: data.time || data.transactTime || Date.now(),
-      updateTime: data.updateTime || data.time || Date.now(),
     }
   }
 
@@ -890,7 +948,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     return this.transformOrder({ ...data, avgPrice: data.avgPrice }, symbol, 'delivery')
   }
 
-  private mapOrderType(orderType: string): FuturesOrderType {
+  private mapOrderType(orderType: string) {
     switch (orderType) {
       case 'limit':
         return 'LIMIT'

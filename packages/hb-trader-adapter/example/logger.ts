@@ -1,0 +1,103 @@
+import { format } from 'node:util'
+
+const horizontalRule = '+'.padEnd(80, '-')
+
+const levelTag: Record<LogLevel, string> = {
+  info: '信息 ',
+  success: '成功 ',
+  warn: '警告 ',
+  error: '错误 '
+}
+
+export type LogLevel = 'info' | 'success' | 'warn' | 'error'
+
+export interface Logger {
+  banner(title: string): void
+  section(title: string): void
+  info(message: string, ...params: unknown[]): void
+  success(message: string, ...params: unknown[]): void
+  warn(message: string, ...params: unknown[]): void
+  error(message: string, ...params: unknown[]): void
+  divider(): void
+  kv(label: string, value: unknown): void
+  json(label: string, payload: unknown): void
+  timed<T>(title: string, fn: () => Promise<T>): Promise<T>
+}
+
+export function createLogger(scope: string): Logger {
+  const prefix = scope ? `[${scope}] ` : ''
+
+  const base = (level: LogLevel, message: string, params: unknown[]) => {
+    const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '')
+    const line = `[${timestamp}] ${levelTag[level]} | ${prefix}${message}`
+    if (params.length === 0) {
+      console.log(line)
+      return
+    }
+    console.log(line, ...params)
+  }
+
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) {
+      return `${ms.toFixed(0)}ms`
+    }
+    return `${(ms / 1000).toFixed(2)}s`
+  }
+
+  return {
+    banner(title: string) {
+      const line = '='.repeat(Math.max(title.length + 8, 32))
+      console.log(line)
+      console.log(`===  ${title}  ===`)
+      console.log(line)
+    },
+    section(title: string) {
+      const line = `--- ${title} ${'-'.repeat(Math.max(0, 60 - title.length))}`
+      console.log(line)
+    },
+    info(message: string, ...params: unknown[]) {
+      base('info', message, params)
+    },
+    success(message: string, ...params: unknown[]) {
+      base('success', message, params)
+    },
+    warn(message: string, ...params: unknown[]) {
+      base('warn', message, params)
+    },
+    error(message: string, ...params: unknown[]) {
+      base('error', message, params)
+    },
+    divider() {
+      console.log(horizontalRule)
+    },
+    kv(label: string, value: unknown) {
+      const padded = label.padEnd(24, '.')
+      base('info', `${padded} ${value}`, [])
+    },
+    json(label: string, payload: unknown) {
+      this.section(label)
+      console.log(JSON.stringify(payload, null, 2))
+      this.divider()
+    },
+    async timed<T>(title: string, fn: () => Promise<T>): Promise<T> {
+      const start = Date.now()
+      this.info(`[开始] ${title}`)
+      try {
+        const result = await fn()
+        this.success(`[完成] ${title} (${formatDuration(Date.now() - start)})`)
+        return result
+      } catch (error) {
+        this.error(`[失败] ${title} (${formatDuration(Date.now() - start)})`)
+        throw error
+      }
+    }
+  }
+}
+
+export function formatList(items: Array<[string, string | number]>): string {
+  return items.map(([k, v]) => `${k.padEnd(24, '.')} ${v}`).join('\n')
+}
+
+export function formatMessage(template: string, ...params: unknown[]): string {
+  return format(template, ...params)
+}

@@ -46,7 +46,7 @@ export type {
 } from './types'
 
 // Result 工具函数
-export { Ok, Err } from './types'
+export { Ok, Err } from './utils'
 
 // ============================================================================
 // Base Classes

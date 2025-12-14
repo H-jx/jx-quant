@@ -1,4 +1,12 @@
-import { RestClient } from 'okx-api'
+import {
+  InstrumentType,
+  OrderDetails,
+  OrderRequest,
+  OrderType,
+  RestClient,
+  SetLeverageRequest
+} from 'okx-api'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   TradeType,
   Result,
@@ -9,19 +17,19 @@ import type {
   PlaceOrderParams,
   PositionSide,
   OrderStatus,
-  ApiCredentials,
-  AdapterOptions,
   IPublicAdapter,
-  BatchOrderLimits
+  BatchOrderLimits,
+  TradeAdapterInit
 } from '../types'
-import { Ok, Err } from '../types'
+import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
+import { ErrorCodes } from '../errorCodes'
 import {
   unifiedToOkx,
   getOkxInstType,
   getOkxTdMode,
   wrapAsync,
-  createProxyAgent
+  createProxyAgent,
 } from '../utils'
 import { OkxPublicAdapter } from './OkxPublicAdapter'
 
@@ -53,47 +61,43 @@ interface OkxOrderResponse {
   sMsg: string
 }
 
-interface OkxOrderDetailResponse {
-  ordId: string
-  clOrdId: string
-  instId: string
-  side: string
-  posSide: string
-  ordType: string
-  state: string
-  px: string
-  avgPx: string
-  sz: string
-  accFillSz: string
-  cTime: string
-  uTime: string
-}
+type OkxOrderDetailResponse = OrderDetails
 
+type OkxTradeAdapterParams = TradeAdapterInit<OkxPublicAdapter>
 /**
  * OKX 交易 API 适配器
  * 使用组合模式，公共 API 委托给 OkxPublicAdapter
  */
 export class OkxTradeAdapter extends BaseTradeAdapter {
+  /** 组合的公共适配器[复用] */
+  static publicAdapter = new OkxPublicAdapter()
   /** 组合的公共适配器 */
-  readonly publicAdapter: IPublicAdapter
+  readonly publicAdapter: IPublicAdapter = new OkxPublicAdapter()
 
   protected client: RestClient
 
-  constructor(credentials: ApiCredentials, options?: AdapterOptions, publicAdapter?: OkxPublicAdapter) {
+  constructor({ apiKey, apiSecret, passphrase, httpsProxy, socksProxy, publicAdapter }: OkxTradeAdapterParams) {
     super()
-    const agent = createProxyAgent(options)
-    const clientConfig: Record<string, unknown> = {
-      apiKey: credentials.apiKey,
-      apiSecret: credentials.apiSecret,
-      apiPass: credentials.passphrase
-    }
-    if (agent) {
-      clientConfig.httpsAgent = agent
-    }
-    this.client = new RestClient(clientConfig as never)
 
-    // 使用传入的公共适配器或创建新实例
-    this.publicAdapter = publicAdapter || new OkxPublicAdapter(options)
+    const clientConfig: Record<string, unknown> = {
+      apiKey: apiKey,
+      apiSecret: apiSecret,
+      apiPass: passphrase
+    }
+    const requestOptions: AxiosRequestConfig = {}
+
+    if (httpsProxy || socksProxy) {
+      const agent = createProxyAgent({ httpsProxy, socksProxy })
+      requestOptions.httpAgent = agent
+      requestOptions.httpsAgent = agent
+    }
+
+    this.client = new RestClient(clientConfig, requestOptions)
+
+    if (OkxTradeAdapter.publicAdapter === undefined) {
+      OkxTradeAdapter.publicAdapter = publicAdapter || new OkxPublicAdapter({ httpsProxy, socksProxy })
+    }
+    this.publicAdapter = OkxTradeAdapter.publicAdapter
   }
 
   // ============================================================================
@@ -143,19 +147,14 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
   /**
    * 获取合约持仓
    */
-  async getPositions(symbol?: string, tradeType?: TradeType): Promise<Result<Position[]>> {
-    const params: { instType?: string; instId?: string } = {}
-
-    if (tradeType) {
-      params.instType = getOkxInstType(tradeType)
-    }
-
-    if (symbol && tradeType) {
-      params.instId = unifiedToOkx(symbol, tradeType)
+  async getPositions(symbol: string, tradeType: TradeType): Promise<Result<Position[]>> {
+    const params = {
+      instType: getOkxInstType(tradeType),
+      instId: symbol
     }
 
     const result = await wrapAsync<OkxPositionResponse[]>(
-      () => this.client.getPositions(params as never),
+      () => this.client.getPositions(params),
       'GET_POSITIONS_ERROR'
     )
 
@@ -191,27 +190,17 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     const instId = symbolInfo.rawSymbol
 
     // 构建 OKX 订单请求
-    const orderRequest: {
-      instId: string
-      tdMode: string
-      side: string
-      ordType: string
-      sz: string
-      px?: string
-      posSide?: string
-      clOrdId?: string
-      reduceOnly?: boolean
-    } = {
+    const orderRequest: OrderRequest = {
       instId,
       tdMode: getOkxTdMode(params.tradeType),
       side: params.side,
       ordType: this.mapOrderType(params.orderType),
-      sz: params.quantity
+      sz: String(params.quantity)
     }
 
     // 限价单需要价格
     if (params.orderType === 'limit' || params.orderType === 'maker-only') {
-      orderRequest.px = params.price
+      orderRequest.px = String(params.price)
     }
 
     // 合约需要持仓方向
@@ -230,8 +219,8 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     }
 
     const result = await wrapAsync<OkxOrderResponse[]>(
-      () => this.client.submitOrder(orderRequest as never),
-      'PLACE_ORDER_ERROR'
+      () => this.client.submitOrder(orderRequest),
+      ErrorCodes.PLACE_ORDER_ERROR
     )
 
     if (!result.ok) {
@@ -242,7 +231,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'PLACE_ORDER_ERROR',
+        code: ErrorCodes.PLACE_ORDER_ERROR,
         message: 'Empty response from exchange'
       })
     }
@@ -268,12 +257,10 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
       positionSide: params.positionSide,
       orderType: params.orderType,
       status: 'open',
-      price: params.price || '0',
+      price: String(params.price) || '0',
       avgPrice: '0',
-      quantity: params.quantity,
+      quantity: String(params.quantity),
       filledQty: '0',
-      createTime: Date.now(),
-      updateTime: Date.now(),
       raw: data
     }
 
@@ -296,16 +283,16 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
       const key = `${params.symbol}:${params.tradeType}`
       const symbolInfo = symbolInfoMap.get(key)!
 
-      const orderRequest: Record<string, unknown> = {
+      const orderRequest: OrderRequest = {
         instId: symbolInfo.rawSymbol,
         tdMode: getOkxTdMode(params.tradeType),
         side: params.side,
         ordType: this.mapOrderType(params.orderType),
-        sz: params.quantity
+        sz: String(params.quantity)
       }
 
       if (params.orderType === 'limit' || params.orderType === 'maker-only') {
-        orderRequest.px = params.price
+        orderRequest.px = String(params.price)
       }
 
       if (params.tradeType !== 'spot' && params.positionSide) {
@@ -324,8 +311,8 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     })
 
     const result = await wrapAsync<OkxOrderResponse[]>(
-      () => this.client.submitMultipleOrders(batchOrders as never),
-      'BATCH_PLACE_ORDER_ERROR'
+      () => this.client.submitMultipleOrders(batchOrders),
+      ErrorCodes.BATCH_PLACE_ORDER_ERROR
     )
 
     if (!result.ok) {
@@ -356,12 +343,10 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
         positionSide: params.positionSide,
         orderType: params.orderType,
         status: 'open' as OrderStatus,
-        price: params.price || '0',
+        price: String(params.price) || '0',
         avgPrice: '0',
-        quantity: params.quantity,
+        quantity: String(params.quantity),
         filledQty: '0',
-        createTime: Date.now(),
-        updateTime: Date.now(),
         raw: item
       })
     })
@@ -379,7 +364,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
 
     const result = await wrapAsync<OkxOrderResponse[]>(
       () => this.client.cancelOrder({ instId, ordId: orderId }),
-      'CANCEL_ORDER_ERROR'
+      ErrorCodes.CANCEL_ORDER_ERROR
     )
 
     if (!result.ok) {
@@ -390,7 +375,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'CANCEL_ORDER_ERROR',
+        code: ErrorCodes.CANCEL_ORDER_ERROR,
         message: 'Empty response from exchange'
       })
     }
@@ -432,7 +417,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
 
     if (!data || data.length === 0) {
       return Err({
-        code: 'ORDER_NOT_FOUND',
+        code: ErrorCodes.ORDER_NOT_FOUND,
         message: `Order ${orderId} not found`
       })
     }
@@ -445,19 +430,14 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
   /**
    * 获取未成交订单
    */
-  async getOpenOrders(symbol?: string, tradeType?: TradeType): Promise<Result<Order[]>> {
-    const params: { instType?: string; instId?: string } = {}
-
-    if (tradeType) {
-      params.instType = getOkxInstType(tradeType)
-    }
-
-    if (symbol && tradeType) {
-      params.instId = unifiedToOkx(symbol, tradeType)
+  async getOpenOrders(symbol: string, tradeType: TradeType): Promise<Result<Order[]>> {
+    const params: { instType: InstrumentType; instId: string } = {
+      instType: getOkxInstType(tradeType),
+      instId: symbol
     }
 
     const result = await wrapAsync<OkxOrderDetailResponse[]>(
-      () => this.client.getOrderList(params as never),
+      () => this.client.getOrderList(params),
       'GET_OPEN_ORDERS_ERROR'
     )
 
@@ -486,7 +466,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
   ): Promise<Result<void>> {
     if (tradeType === 'spot') {
       return Err({
-        code: 'INVALID_TRADE_TYPE',
+        code: ErrorCodes.INVALID_TRADE_TYPE,
         message: 'Cannot set leverage for spot trading'
       })
     }
@@ -496,8 +476,8 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     const params: {
       instId: string
       lever: string
-      mgnMode: string
-      posSide?: string
+      mgnMode: SetLeverageRequest['mgnMode']
+      posSide?: SetLeverageRequest['posSide']
     } = {
       instId,
       lever: String(leverage),
@@ -509,7 +489,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     }
 
     const result = await wrapAsync(
-      () => this.client.setLeverage(params as never),
+      () => this.client.setLeverage(params),
       'SET_LEVERAGE_ERROR'
     )
 
@@ -548,7 +528,7 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     }
   }
 
-  private mapOrderType(orderType: string): string {
+  private mapOrderType(orderType: string): OrderType {
     switch (orderType) {
       case 'limit':
         return 'limit'

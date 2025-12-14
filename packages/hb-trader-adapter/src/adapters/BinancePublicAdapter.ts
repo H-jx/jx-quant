@@ -1,4 +1,14 @@
-import { MainClient, USDMClient, CoinMClient, numberInString } from 'binance'
+import type { AxiosRequestConfig } from 'axios'
+import {
+  MainClient,
+  USDMClient,
+  CoinMClient,
+  numberInString,
+  Ticker24hrResponse,
+  ChangeStats24hr,
+  RestClientOptions,
+  FuturesSymbolExchangeInfo
+} from 'binance'
 import type {
   Exchange,
   TradeType,
@@ -8,7 +18,11 @@ import type {
   OrderBook,
   AdapterOptions
 } from '../types'
-import { Ok, Err, SymbolStatus } from '../types'
+import {
+  Ok,
+  Err, 
+} from '../utils'
+import { SymbolStatus } from '../types'
 import { BasePublicAdapter } from '../BasePublicAdapter'
 import {
   unifiedToBinance,
@@ -17,21 +31,11 @@ import {
   wrapAsync,
   createProxyAgent
 } from '../utils'
+import { ErrorCodes } from '../errorCodes'
 
 // Binance API response types
 interface BinancePriceResponse {
   price: numberInString
-}
-
-interface BinanceTickerResponse {
-  symbol: string
-  lastPrice: numberInString
-  highPrice: numberInString
-  lowPrice: numberInString
-  volume: numberInString
-  quoteVolume: numberInString
-  priceChangePercent: numberInString
-  closeTime: number
 }
 
 interface BinanceOrderBookResponse {
@@ -69,17 +73,7 @@ interface BinanceFuturesSymbol {
   filters: BinanceSymbolFilter[]
 }
 
-interface BinanceDeliverySymbol {
-  symbol: string
-  pair: string
-  baseAsset: string
-  quoteAsset: string
-  status: string
-  quantityPrecision: number
-  pricePrecision: number
-  contractSize?: number
-  filters: BinanceSymbolFilter[]
-}
+// Use `FuturesExchangeInfo` imported from 'binance' for delivery/futures exchange info
 
 /**
  * Binance 公共 API 适配器
@@ -94,14 +88,17 @@ export class BinancePublicAdapter extends BasePublicAdapter {
   constructor(options?: AdapterOptions) {
     super()
     // 公共 API 不需要认证
-    const clientOptions: Record<string, unknown> = {}
+    const clientOptions: RestClientOptions = {}
+    const requestOptions: AxiosRequestConfig = {}
     const agent = createProxyAgent(options)
+
     if (agent) {
-      clientOptions.httpsAgent = agent
+      requestOptions.httpAgent = agent
+      requestOptions.httpsAgent = agent
     }
-    this.spotClient = new MainClient(clientOptions)
-    this.futuresClient = new USDMClient(clientOptions)
-    this.deliveryClient = new CoinMClient(clientOptions)
+    this.spotClient = new MainClient(clientOptions, requestOptions)
+    this.futuresClient = new USDMClient(clientOptions, requestOptions)
+    this.deliveryClient = new CoinMClient(clientOptions, requestOptions)
   }
 
   /**
@@ -121,12 +118,12 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     }
 
     const info = allResult.data.find(s => s.symbol === symbol)
-    if (!info) {
-      return Err({
-        code: 'SYMBOL_NOT_FOUND',
-        message: `Symbol ${symbol} not found`
-      })
-    }
+      if (!info) {
+        return Err({
+          code: ErrorCodes.SYMBOL_NOT_FOUND,
+          message: `Symbol ${symbol} not found`
+        })
+      }
 
     return Ok(info)
   }
@@ -173,11 +170,11 @@ export class BinancePublicAdapter extends BasePublicAdapter {
 
     if (Array.isArray(data)) {
       if (data.length === 0) {
-        return Err({
-          code: 'PRICE_NOT_FOUND',
-          message: `Price for ${symbol} not found`
-        })
-      }
+          return Err({
+            code: ErrorCodes.PRICE_NOT_FOUND,
+            message: `Price for ${symbol} not found`
+          })
+        }
       return Ok(String(data[0].price))
     }
 
@@ -190,15 +187,15 @@ export class BinancePublicAdapter extends BasePublicAdapter {
   async getTicker(symbol: string, tradeType: TradeType): Promise<Result<Ticker>> {
     const rawSymbol = unifiedToBinance(symbol, tradeType)
 
-    const result = await wrapAsync<BinanceTickerResponse>(
-      async () => {
+    const result = await wrapAsync<Ticker24hrResponse | ChangeStats24hr>(
+      () => {
         switch (tradeType) {
           case 'spot':
-            return this.spotClient.get24hrChangeStatistics({ symbol: rawSymbol }) as Promise<BinanceTickerResponse>
+            return this.spotClient.get24hrChangeStatistics({ symbol: rawSymbol })
           case 'futures':
-            return this.futuresClient.get24hrChangeStatistics({ symbol: rawSymbol }) as Promise<BinanceTickerResponse>
+            return this.futuresClient.get24hrChangeStatistics({ symbol: rawSymbol })
           case 'delivery':
-            return this.deliveryClient.get24hrChangeStatistics({ symbol: rawSymbol }) as Promise<BinanceTickerResponse>
+            return this.deliveryClient.get24hrChangeStatistics({ symbol: rawSymbol }) as Promise<ChangeStats24hr>
         }
       },
       'GET_TICKER_ERROR'
@@ -212,12 +209,11 @@ export class BinancePublicAdapter extends BasePublicAdapter {
 
     return Ok({
       symbol,
-      lastPrice: String(data.lastPrice),
-      highPrice: String(data.highPrice),
-      lowPrice: String(data.lowPrice),
+      last: String(data.lastPrice),
+      high: String(data.highPrice),
+      low: String(data.lowPrice),
       volume: String(data.volume),
       quoteVolume: String(data.quoteVolume),
-      priceChangePercent: String(data.priceChangePercent),
       timestamp: data.closeTime
     })
   }
@@ -289,11 +285,11 @@ export class BinancePublicAdapter extends BasePublicAdapter {
 
     if (Array.isArray(data)) {
       if (data.length === 0) {
-        return Err({
-          code: 'MARK_PRICE_NOT_FOUND',
-          message: `Mark price for ${symbol} not found`
-        })
-      }
+          return Err({
+            code: ErrorCodes.MARK_PRICE_NOT_FOUND,
+            message: `Mark price for ${symbol} not found`
+          })
+        }
       return Ok(String(data[0].markPrice))
     }
 
@@ -357,7 +353,7 @@ export class BinancePublicAdapter extends BasePublicAdapter {
   }
 
   private async getDeliverySymbols(): Promise<Result<SymbolInfo[]>> {
-    const result = await wrapAsync<{ symbols: BinanceDeliverySymbol[] }>(
+    const result = await wrapAsync<{ symbols: FuturesSymbolExchangeInfo[] }>(
       () => this.deliveryClient.getExchangeInfo(),
       'GET_DELIVERY_SYMBOLS_ERROR'
     )
@@ -421,7 +417,7 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     }
   }
 
-  private transformDeliverySymbol(s: BinanceDeliverySymbol): SymbolInfo {
+  private transformDeliverySymbol(s: FuturesSymbolExchangeInfo): SymbolInfo {
     const priceFilter = s.filters.find(f => f.filterType === 'PRICE_FILTER')
     const lotSizeFilter = s.filters.find(f => f.filterType === 'LOT_SIZE')
 
