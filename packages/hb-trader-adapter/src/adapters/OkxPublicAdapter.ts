@@ -12,7 +12,7 @@ import type {
 import { SymbolStatus } from '../types'
 import { Ok, Err } from '../utils'
 import { BasePublicAdapter } from '../BasePublicAdapter'
-import { ErrorCodes }from '../errorCodes'
+import { ErrorCodes } from '../errorCodes'
 import {
   unifiedToOkx,
   okxToUnified,
@@ -67,9 +67,9 @@ export class OkxPublicAdapter extends BasePublicAdapter {
   constructor(options?: AdapterOptions) {
     super()
     const requestOptions: AxiosRequestConfig = {}
-    const agent = createProxyAgent(options)
 
-    if (agent) {
+    if (options?.httpsProxy || options?.socksProxy) {
+      const agent = createProxyAgent(options)
       requestOptions.httpAgent = agent
       requestOptions.httpsAgent = agent
     }
@@ -89,7 +89,6 @@ export class OkxPublicAdapter extends BasePublicAdapter {
 
     const instId = unifiedToOkx(symbol, tradeType)
     const instType = getOkxInstType(tradeType)
-
     const result = await wrapAsync<OkxInstrumentResponse[]>(
       () => this.client.getInstruments({ instType, instId }),
       'GET_SYMBOL_INFO_ERROR'

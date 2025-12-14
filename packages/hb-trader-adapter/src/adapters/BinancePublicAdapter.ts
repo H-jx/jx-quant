@@ -7,7 +7,8 @@ import {
   Ticker24hrResponse,
   ChangeStats24hr,
   RestClientOptions,
-  FuturesSymbolExchangeInfo
+  FuturesSymbolExchangeInfo,
+  ContactType
 } from 'binance'
 import type {
   Exchange,
@@ -20,7 +21,7 @@ import type {
 } from '../types'
 import {
   Ok,
-  Err, 
+  Err,
 } from '../utils'
 import { SymbolStatus } from '../types'
 import { BasePublicAdapter } from '../BasePublicAdapter'
@@ -71,6 +72,7 @@ interface BinanceFuturesSymbol {
   quantityPrecision: number
   pricePrecision: number
   filters: BinanceSymbolFilter[]
+  contractType: ContactType;
 }
 
 // Use `FuturesExchangeInfo` imported from 'binance' for delivery/futures exchange info
@@ -90,9 +92,9 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     // 公共 API 不需要认证
     const clientOptions: RestClientOptions = {}
     const requestOptions: AxiosRequestConfig = {}
-    const agent = createProxyAgent(options)
 
-    if (agent) {
+    if (options?.httpsProxy || options?.socksProxy) {
+      const agent = createProxyAgent(options)
       requestOptions.httpAgent = agent
       requestOptions.httpsAgent = agent
     }
@@ -118,12 +120,12 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     }
 
     const info = allResult.data.find(s => s.symbol === symbol)
-      if (!info) {
-        return Err({
-          code: ErrorCodes.SYMBOL_NOT_FOUND,
-          message: `Symbol ${symbol} not found`
-        })
-      }
+    if (!info) {
+      return Err({
+        code: ErrorCodes.SYMBOL_NOT_FOUND,
+        message: `Symbol ${symbol} not found`
+      })
+    }
 
     return Ok(info)
   }
@@ -170,11 +172,11 @@ export class BinancePublicAdapter extends BasePublicAdapter {
 
     if (Array.isArray(data)) {
       if (data.length === 0) {
-          return Err({
-            code: ErrorCodes.PRICE_NOT_FOUND,
-            message: `Price for ${symbol} not found`
-          })
-        }
+        return Err({
+          code: ErrorCodes.PRICE_NOT_FOUND,
+          message: `Price for ${symbol} not found`
+        })
+      }
       return Ok(String(data[0].price))
     }
 
@@ -186,7 +188,6 @@ export class BinancePublicAdapter extends BasePublicAdapter {
    */
   async getTicker(symbol: string, tradeType: TradeType): Promise<Result<Ticker>> {
     const rawSymbol = unifiedToBinance(symbol, tradeType)
-
     const result = await wrapAsync<Ticker24hrResponse | ChangeStats24hr>(
       () => {
         switch (tradeType) {
@@ -200,12 +201,11 @@ export class BinancePublicAdapter extends BasePublicAdapter {
       },
       'GET_TICKER_ERROR'
     )
-
     if (!result.ok) {
       return Err(result.error)
     }
 
-    const data = result.data
+    const data = Array.isArray(result.data) ? result.data[0] : result.data
 
     return Ok({
       symbol,
@@ -224,7 +224,7 @@ export class BinancePublicAdapter extends BasePublicAdapter {
   async getOrderBook(
     symbol: string,
     tradeType: TradeType,
-    limit: number = 20
+    limit: number = 50
   ): Promise<Result<OrderBook>> {
     const rawSymbol = unifiedToBinance(symbol, tradeType)
     // Binance API 只接受特定的 limit 值
@@ -285,11 +285,11 @@ export class BinancePublicAdapter extends BasePublicAdapter {
 
     if (Array.isArray(data)) {
       if (data.length === 0) {
-          return Err({
-            code: ErrorCodes.MARK_PRICE_NOT_FOUND,
-            message: `Mark price for ${symbol} not found`
-          })
-        }
+        return Err({
+          code: ErrorCodes.MARK_PRICE_NOT_FOUND,
+          message: `Mark price for ${symbol} not found`
+        })
+      }
       return Ok(String(data[0].markPrice))
     }
 
@@ -327,7 +327,6 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     const symbols = result.data.symbols
       .filter(s => s.status === 'TRADING')
       .map(s => this.transformSpotSymbol(s))
-
     this.setCachedSymbols('spot', symbols)
 
     return Ok(symbols)
@@ -344,7 +343,7 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     }
 
     const symbols = result.data.symbols
-      .filter(s => s.status === 'TRADING')
+      .filter(s => s.status === 'TRADING' && s.contractType === 'PERPETUAL')
       .map(s => this.transformFuturesSymbol(s))
 
     this.setCachedSymbols('futures', symbols)
@@ -362,8 +361,72 @@ export class BinancePublicAdapter extends BasePublicAdapter {
       return Err(result.error)
     }
 
+    // {
+    //   symbol: 'BTCUSD_PERP',
+    //   pair: 'BTCUSD',
+    //   contractType: 'PERPETUAL',
+    //   deliveryDate: 4133404800000,
+    //   onboardDate: 1597042800000,
+    //   contractStatus: 'TRADING',
+    //   contractSize: 100,
+    //   maintMarginPercent: '2.5000',
+    //   requiredMarginPercent: '5.0000',
+    //   baseAsset: 'BTC',
+    //   quoteAsset: 'USD',
+    //   marginAsset: 'BTC',
+    //   pricePrecision: 1,
+    //   quantityPrecision: 0,
+    //   baseAssetPrecision: 8,
+    //   quotePrecision: 8,
+    //   underlyingType: 'COIN',
+    //   underlyingSubType: [ 'PoW' ],
+    //   triggerProtect: '0.0500',
+    //   liquidationFee: '0.015000',
+    //   marketTakeBound: '0.05',
+    //   equalQtyPrecision: 4,
+    //   maxMoveOrderLimit: 10000,
+    //   filters: [
+    //     {
+    //       minPrice: '1000',
+    //       tickSize: '0.1',
+    //       filterType: 'PRICE_FILTER',
+    //       maxPrice: '4520958'
+    //     },
+    //     {
+    //       maxQty: '1000000',
+    //       stepSize: '1',
+    //       minQty: '1',
+    //       filterType: 'LOT_SIZE'
+    //     },
+    //     {
+    //       filterType: 'MARKET_LOT_SIZE',
+    //       maxQty: '60000',
+    //       stepSize: '1',
+    //       minQty: '1'
+    //     },
+    //     { limit: 200, filterType: 'MAX_NUM_ORDERS' },
+    //     { filterType: 'MAX_NUM_ALGO_ORDERS', limit: 20 },
+    //     {
+    //       filterType: 'PERCENT_PRICE',
+    //       multiplierUp: '1.0500',
+    //       multiplierDown: '0.9500',
+    //       multiplierDecimal: '4'
+    //     }
+    //   ],
+    //   orderTypes: [
+    //     'LIMIT',
+    //     'MARKET',
+    //     'STOP',
+    //     'STOP_MARKET',
+    //     'TAKE_PROFIT',
+    //     'TAKE_PROFIT_MARKET',
+    //     'TRAILING_STOP_MARKET'
+    //   ],
+    //   timeInForce: [ 'GTC', 'IOC', 'FOK', 'GTX' ],
+    //   permissionSets: [ 'GRID' ]
+    // }
     const symbols = result.data.symbols
-      .filter(s => s.status === 'TRADING')
+      .filter(s => s.contractStatus === 'TRADING')
       .map(s => this.transformDeliverySymbol(s))
 
     this.setCachedSymbols('delivery', symbols)

@@ -1,12 +1,10 @@
-import type { Result, SymbolInfo, Ticker, OrderBook, TradeType } from '../src/types'
+import type { Result, SymbolInfo, Ticker, OrderBook, TradeType, Exchange } from '../src/types'
 import { bootstrapAdapters, ensureSymbolLoaded, log, runWithErrorHandling } from './helpers'
 import { formatList } from './logger'
 
 const tradeTypes: TradeType[] = ['spot', 'futures', 'delivery']
-const exchangeKeys = ['binance', 'okx'] as const
-type ExchangeKey = typeof exchangeKeys[number]
 
-const sampleSymbols: Record<TradeType, Record<ExchangeKey, string>> = {
+const sampleSymbols: Record<TradeType, Record<Exchange, string>> = {
   spot: { binance: 'BTC-USDT', okx: 'BTC-USDT' },
   futures: { binance: 'BTC-USDT', okx: 'BTC-USDT' },
   delivery: { binance: 'BTC-USD', okx: 'BTC-USDT' }
@@ -71,7 +69,7 @@ async function enqueuePublicTests(): Promise<void> {
   for (const [exchange, adapter] of Object.entries(publicAdapters)) {
     for (const tradeType of tradeTypes) {
       const symbolMap = sampleSymbols[tradeType]
-      const symbol = symbolMap[(exchange as ExchangeKey)] || symbolMap.binance
+      const symbol = symbolMap[(exchange as Exchange)] || symbolMap.binance
       const label = `${exchange.toUpperCase()} ${tradeTypeLabel[tradeType]}`
 
       const queue: Task[] = [

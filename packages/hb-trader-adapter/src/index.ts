@@ -39,10 +39,6 @@ export type {
   // API 认证
   ApiCredentials,
   AdapterOptions,
-
-  // 适配器接口
-  IPublicAdapter,
-  ITradeAdapter
 } from './types'
 
 // Result 工具函数
@@ -52,8 +48,9 @@ export { Ok, Err } from './utils'
 // Base Classes
 // ============================================================================
 export { BasePublicAdapter } from './BasePublicAdapter'
+export type { IPublicAdapter } from './BasePublicAdapter'
 export { BaseTradeAdapter } from './BaseTradeAdapter'
-
+export type { ITradeAdapter } from './BaseTradeAdapter'
 // ============================================================================
 // Adapters
 // ============================================================================

@@ -3,7 +3,7 @@
 // ============================================================================
 
 export type Result<T, E = ErrorInfo> =
-  | { ok: true; data: T }
+  | { ok: boolean; data: T; error: E }
   | { ok: false; error: E }
 
 export interface ErrorInfo {
@@ -73,7 +73,7 @@ export interface SymbolInfo {
   /** 最大杠杆 (仅合约) */
   maxLeverage?: number
   /** 补充其他原始数据 */
-  raw?: unknown
+  raw?: string
 }
 
 // ============================================================================
@@ -269,57 +269,7 @@ export type TradeAdapterInit<TPublicAdapter> = ApiCredentials & AdapterOptions &
   publicAdapter?: TPublicAdapter
 }
 
-// ============================================================================
-// 交易所 Symbol 映射规则
-// ============================================================================
 
-/**
- * OKX Symbol 格式:
- * - SPOT: BTC-USDT
- * - SWAP (永续): BTC-USDT-SWAP
- * - FUTURES (交割): BTC-USDT-240329
- *
- * Binance Symbol 格式:
- * - SPOT: BTCUSDT
- * - USDM (永续): BTCUSDT
- * - COINM (币本位): BTCUSD_PERP / BTCUSD_240329
- */
-
-// ============================================================================
-// 适配器接口定义
-// ============================================================================
-
-/**
- * 公共 API 适配器接口 (无需认证)
- */
-export interface IPublicAdapter {
-  /** 交易所标识 */
-  readonly exchange: Exchange
-
-  /** 获取交易对信息 */
-  getSymbolInfo(symbol: string, tradeType: TradeType): Promise<Result<SymbolInfo>>
-
-  /** 获取所有交易对信息 */
-  getAllSymbols(tradeType: TradeType): Promise<Result<SymbolInfo[]>>
-
-  /** 获取当前价格 */
-  getPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>
-
-  /** 获取标记价格 (合约) */
-  getMarkPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>
-
-  /** 获取 Ticker */
-  getTicker(symbol: string, tradeType: TradeType): Promise<Result<Ticker>>
-
-  /** 获取深度数据 */
-  getOrderBook(symbol: string, tradeType: TradeType, limit?: number): Promise<Result<OrderBook>>
-
-  /** 统一格式 -> 交易所原始格式 */
-  toRawSymbol(symbol: string, tradeType: TradeType): string
-
-  /** 交易所原始格式 -> 统一格式 */
-  fromRawSymbol(rawSymbol: string, tradeType: TradeType): string
-}
 
 // ============================================================================
 // 批量下单相关类型
@@ -355,96 +305,4 @@ export interface ValidationResult {
   valid: boolean
   /** 错误信息 (校验失败时) */
   error?: ErrorInfo
-}
-
-/**
- * 交易 API 适配器接口 (需要认证)
- */
-export interface ITradeAdapter extends IPublicAdapter {
-  /** 组合的公共适配器 */
-  readonly publicAdapter: IPublicAdapter
-
-  // ============================================================================
-  // 生命周期
-  // ============================================================================
-
-  /** 初始化 (加载交易对信息等) */
-  init(): Promise<Result<void>>
-
-  /** 销毁资源 */
-  destroy(): Promise<void>
-
-  /** 预加载所有交易对信息到缓存 */
-  loadSymbols(tradeType?: TradeType): Promise<Result<void>>
-
-  // ============================================================================
-  // 账户信息
-  // ============================================================================
-
-  /** 获取账户余额 */
-  getBalance(tradeType: TradeType): Promise<Result<Balance[]>>
-
-  /** 获取合约持仓 */
-  getPositions(symbol?: string, tradeType?: TradeType): Promise<Result<Position[]>>
-
-  // ============================================================================
-  // 下单校验 (可供调用方预先校验)
-  // ============================================================================
-
-  /** 校验下单参数 */
-  validateOrderParams(params: PlaceOrderParams, symbolInfo: SymbolInfo): ValidationResult
-
-  /** 校验余额是否充足 */
-  validateBalance(
-    params: PlaceOrderParams,
-    symbolInfo: SymbolInfo,
-    balances: Balance[],
-    currentPrice: number,
-    positions?: Position[]
-  ): ValidationResult
-
-  /** 格式化下单参数 (精度对齐) */
-  formatOrderParams(params: PlaceOrderParams, symbolInfo: SymbolInfo): PlaceOrderParams
-
-  // ============================================================================
-  // 下单
-  // ============================================================================
-
-  /** 下单 */
-  placeOrder(params: PlaceOrderParams): Promise<Result<Order>>
-
-  /** 批量下单 */
-  placeOrders(paramsList: PlaceOrderParams[]): Promise<BatchPlaceOrderResult>
-
-  /** 获取批量下单限制 */
-  getBatchOrderLimits(): BatchOrderLimits
-
-  // ============================================================================
-  // 订单管理
-  // ============================================================================
-
-  /** 取消订单 */
-  cancelOrder(
-    symbol: string,
-    orderId: string,
-    tradeType: TradeType
-  ): Promise<Result<Order>>
-
-  /** 查询订单 */
-  getOrder(
-    symbol: string,
-    orderId: string,
-    tradeType: TradeType
-  ): Promise<Result<Order>>
-
-  /** 获取未成交订单 */
-  getOpenOrders(symbol?: string, tradeType?: TradeType): Promise<Result<Order[]>>
-
-  /** 设置杠杆 */
-  setLeverage(
-    symbol: string,
-    leverage: number,
-    tradeType: TradeType,
-    positionSide?: PositionSide
-  ): Promise<Result<void>>
 }

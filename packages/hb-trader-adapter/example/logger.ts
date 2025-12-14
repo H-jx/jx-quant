@@ -3,10 +3,10 @@ import { format } from 'node:util'
 const horizontalRule = '+'.padEnd(80, '-')
 
 const levelTag: Record<LogLevel, string> = {
-  info: '信息 ',
-  success: '成功 ',
-  warn: '警告 ',
-  error: '错误 '
+  info: '信息',
+  success: '成功',
+  warn: '警告',
+  error: '错误'
 }
 
 export type LogLevel = 'info' | 'success' | 'warn' | 'error'
@@ -24,12 +24,13 @@ export interface Logger {
   timed<T>(title: string, fn: () => Promise<T>): Promise<T>
 }
 
-export function createLogger(scope: string): Logger {
-  const prefix = scope ? `[${scope}] ` : ''
+const emphasizedLevels: ReadonlySet<LogLevel> = new Set(['warn', 'error'])
+
+export function createLogger(_scope: string): Logger {
 
   const base = (level: LogLevel, message: string, params: unknown[]) => {
-    const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '')
-    const line = `[${timestamp}] ${levelTag[level]} | ${prefix}${message}`
+    const prefix = emphasizedLevels.has(level) ? `${levelTag[level]} ` : ''
+    const line = `${prefix}${message}`
     if (params.length === 0) {
       console.log(line)
       return
@@ -81,13 +82,13 @@ export function createLogger(scope: string): Logger {
     },
     async timed<T>(title: string, fn: () => Promise<T>): Promise<T> {
       const start = Date.now()
-      this.info(`[开始] ${title}`)
+      this.info(`${title} [开始] `)
       try {
         const result = await fn()
-        this.success(`[完成] ${title} (${formatDuration(Date.now() - start)})`)
+        this.success(`${title} (${formatDuration(Date.now() - start)}) [完成]`)
         return result
       } catch (error) {
-        this.error(`[失败] ${title} (${formatDuration(Date.now() - start)})`)
+        this.error(`${title} (${formatDuration(Date.now() - start)}) [失败]`)
         throw error
       }
     }

@@ -2,10 +2,10 @@ import { config as loadEnvFile } from 'dotenv'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createLogger } from './logger'
-import { BinancePublicAdapter, BinanceTradeAdapter, OkxPublicAdapter, OkxTradeAdapter } from '../src'
-import type { IPublicAdapter, ITradeAdapter, TradeType, PlaceOrderParams } from '../src/types'
+import { BaseTradeAdapter, BasePublicAdapter, BinancePublicAdapter, BinanceTradeAdapter, OkxPublicAdapter, OkxTradeAdapter } from '../src'
+import type { TradeType, PlaceOrderParams } from '../src/types'
 
-export const log = createLogger('examples')
+export const log = createLogger('')
 
 const envFiles = ['.env', '.env.local']
 for (const file of envFiles) {
@@ -49,8 +49,8 @@ export const env = {
 }
 
 export interface AdapterSuite {
-  publicAdapters: Record<string, IPublicAdapter>
-  tradeAdapters: Record<string, ITradeAdapter>
+  publicAdapters: Record<string, BasePublicAdapter>
+  tradeAdapters: Record<string, BaseTradeAdapter>
 }
 
 let cachedSuite: AdapterSuite | null = null
@@ -71,7 +71,7 @@ export async function bootstrapAdapters(): Promise<AdapterSuite> {
     binance: new BinancePublicAdapter({ httpsProxy: env.proxy }),
     okx: new OkxPublicAdapter({ httpsProxy: env.proxy })
   }
-
+  console.log(env.simulated)
   const tradeAdapters = {
     binance: new BinanceTradeAdapter({
       apiKey: env.binanceApiKey,
@@ -84,7 +84,8 @@ export async function bootstrapAdapters(): Promise<AdapterSuite> {
       apiSecret: env.okxApiSecret,
       passphrase: env.okxPassphrase,
       httpsProxy: env.proxy,
-      publicAdapter: publicAdapters.okx as OkxPublicAdapter
+      publicAdapter: publicAdapters.okx as OkxPublicAdapter,
+      demoTrading: true
     })
   }
 
@@ -101,7 +102,7 @@ export async function runWithErrorHandling(taskName: string, fn: () => Promise<v
   }
 }
 
-export async function ensureSymbolLoaded(adapter: IPublicAdapter | ITradeAdapter, symbol: string, tradeType: TradeType) {
+export async function ensureSymbolLoaded(adapter: BasePublicAdapter | BaseTradeAdapter, symbol: string, tradeType: TradeType) {
   const info = await adapter.getSymbolInfo(symbol, tradeType)
   if (!info.ok) {
     throw new Error(`无法加载 ${symbol} 的交易对信息：${info.error.message}`)
@@ -109,7 +110,7 @@ export async function ensureSymbolLoaded(adapter: IPublicAdapter | ITradeAdapter
   return info.data
 }
 
-export async function placeOrderSafe(adapter: ITradeAdapter, params: PlaceOrderParams<number, number>) {
+export async function placeOrderSafe(adapter: BaseTradeAdapter, params: PlaceOrderParams<number, number>) {
   const result = await adapter.placeOrder(params)
   if (!result.ok) {
     log.error('下单失败', result.error)

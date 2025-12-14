@@ -6,10 +6,62 @@ import type {
   SymbolInfo,
   Ticker,
   OrderBook,
-  IPublicAdapter
 } from './types'
 
 const cacheExpiry = 60 * 60 * 1000 // 60 分钟
+
+// ============================================================================
+// 交易所 Symbol 映射规则
+// ============================================================================
+
+/**
+ * OKX Symbol 格式:
+ * - SPOT: BTC-USDT
+ * - SWAP (永续): BTC-USDT-SWAP
+ * - FUTURES (交割): BTC-USDT-240329
+ *
+ * Binance Symbol 格式:
+ * - SPOT: BTCUSDT
+ * - USDM (永续): BTCUSDT
+ * - COINM (币本位): BTCUSD_PERP / BTCUSD_240329
+ */
+
+// ============================================================================
+// 适配器接口定义
+// ============================================================================
+
+/**
+ * 公共 API 适配器接口 (无需认证)
+ */
+export interface IPublicAdapter {
+  /** 交易所标识 */
+  readonly exchange: Exchange
+
+  /** 获取交易对信息 */
+  getSymbolInfo(symbol: string, tradeType: TradeType): Promise<Result<SymbolInfo>>
+
+  /** 获取所有交易对信息 */
+  getAllSymbols(tradeType: TradeType): Promise<Result<SymbolInfo[]>>
+
+  /** 获取当前价格 */
+  getPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>
+
+  /** 获取标记价格 (合约) */
+  getMarkPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>
+
+  /** 获取 Ticker */
+  getTicker(symbol: string, tradeType: TradeType): Promise<Result<Ticker>>
+
+  /** 获取深度数据 */
+  getOrderBook(symbol: string, tradeType: TradeType, limit?: number): Promise<Result<OrderBook>>
+
+  /** 统一格式 -> 交易所原始格式 */
+  toRawSymbol(symbol: string, tradeType: TradeType): string
+
+  /** 交易所原始格式 -> 统一格式 */
+  fromRawSymbol(rawSymbol: string, tradeType: TradeType): string
+}
+
 /**
  * 公共 API 适配器基类
  * 提供缓存和通用逻辑

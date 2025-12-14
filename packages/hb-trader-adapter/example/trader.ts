@@ -1,6 +1,7 @@
+import { BaseTradeAdapter } from '../src'
 import type {
   BatchPlaceOrderResult,
-  ITradeAdapter,
+  Exchange,
   Order,
   OrderSide,
   PlaceOrderParams,
@@ -11,22 +12,19 @@ import type {
 } from '../src/types'
 import { bootstrapAdapters, ensureSymbolLoaded, env, log, runWithErrorHandling } from './helpers'
 
-const sampleSymbols: Record<TradeType, string> = {
-  spot: 'BTC-USDT',
-  futures: 'BTC-USDT',
-  delivery: 'BTC-USDT'
+const sampleSymbols: Record<TradeType, Record<Exchange, string>> = {
+  spot: { binance: 'BTC-USDT', okx: 'BTC-USDT' },
+  futures: { binance: 'BTC-USDT', okx: 'BTC-USDT' },
+  delivery: { binance: 'BTC-USD', okx: 'BTC-USD-251219' }
 }
-
 const tradeTypeLabel: Record<TradeType, string> = {
   spot: '现货',
   futures: '永续合约',
   delivery: '交割合约'
 }
 
-type ExchangeKey = 'binance' | 'okx'
-
 interface SingleScenario {
-  exchange: ExchangeKey
+  exchange: Exchange
   tradeType: TradeType
   side: OrderSide
   positionSide?: PositionSide
@@ -78,7 +76,7 @@ function normalizePrice(info: SymbolInfo, rawPrice: number): number {
 }
 
 async function buildLimitOrder(
-  adapter: ITradeAdapter,
+  adapter: BaseTradeAdapter,
   symbol: string,
   tradeType: TradeType,
   side: OrderSide,
@@ -89,7 +87,7 @@ async function buildLimitOrder(
   const priceResult = await adapter.getPrice(symbol, tradeType)
   const lastPrice = parseFloat(assertResult(priceResult, `${adapter.exchange} 价格查询`))
   const offset = side === 'buy' ? 0.995 : 1.005
-  const price = normalizePrice(info, lastPrice * offset)
+  const price = lastPrice * offset //  normalizePrice(info, lastPrice * offset)
   const quantity = normalizeQuantity(info, multiplier)
 
   return {
@@ -104,8 +102,8 @@ async function buildLimitOrder(
   }
 }
 
-async function executeSingleOrder(label: string, adapter: ITradeAdapter, scenario: SingleScenario, simulated: boolean) {
-  const symbol = sampleSymbols[scenario.tradeType]
+async function executeSingleOrder(label: string, adapter: BaseTradeAdapter, scenario: SingleScenario, simulated: boolean) {
+  const symbol = sampleSymbols[scenario.tradeType][adapter.exchange]
   const params = await buildLimitOrder(
     adapter,
     symbol,
@@ -130,8 +128,8 @@ async function executeSingleOrder(label: string, adapter: ITradeAdapter, scenari
   }
 }
 
-async function executeBatchOrders(label: string, adapter: ITradeAdapter, scenario: BatchScenario, simulated: boolean) {
-  const symbol = sampleSymbols[scenario.tradeType]
+async function executeBatchOrders(label: string, adapter: BaseTradeAdapter, scenario: BatchScenario, simulated: boolean) {
+  const symbol = sampleSymbols[scenario.tradeType][adapter.exchange]
   const paramsList: PlaceOrderParams<number, number>[] = []
 
   for (let i = 0; i < scenario.count; i++) {

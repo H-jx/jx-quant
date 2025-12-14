@@ -4,6 +4,7 @@ import {
   OrderRequest,
   OrderType,
   RestClient,
+  RestClientOptions,
   SetLeverageRequest
 } from 'okx-api'
 import type { AxiosRequestConfig } from 'axios'
@@ -17,9 +18,8 @@ import type {
   PlaceOrderParams,
   PositionSide,
   OrderStatus,
-  IPublicAdapter,
   BatchOrderLimits,
-  TradeAdapterInit
+  TradeAdapterInit,
 } from '../types'
 import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
@@ -32,6 +32,7 @@ import {
   createProxyAgent,
 } from '../utils'
 import { OkxPublicAdapter } from './OkxPublicAdapter'
+import { IPublicAdapter } from '../BasePublicAdapter'
 
 // OKX API response types
 interface OkxBalanceResponse {
@@ -63,26 +64,29 @@ interface OkxOrderResponse {
 
 type OkxOrderDetailResponse = OrderDetails
 
-type OkxTradeAdapterParams = TradeAdapterInit<OkxPublicAdapter>
+type OkxTradeAdapterParams = TradeAdapterInit<OkxPublicAdapter> & {
+  demoTrading?: boolean
+}
 /**
  * OKX 交易 API 适配器
  * 使用组合模式，公共 API 委托给 OkxPublicAdapter
  */
 export class OkxTradeAdapter extends BaseTradeAdapter {
   /** 组合的公共适配器[复用] */
-  static publicAdapter = new OkxPublicAdapter()
+  static publicAdapter: OkxPublicAdapter
   /** 组合的公共适配器 */
-  readonly publicAdapter: IPublicAdapter = new OkxPublicAdapter()
+  readonly publicAdapter: IPublicAdapter
 
   protected client: RestClient
 
-  constructor({ apiKey, apiSecret, passphrase, httpsProxy, socksProxy, publicAdapter }: OkxTradeAdapterParams) {
+  constructor({ apiKey, apiSecret, passphrase, demoTrading, httpsProxy, socksProxy, publicAdapter }: OkxTradeAdapterParams) {
     super()
 
-    const clientConfig: Record<string, unknown> = {
+    const clientConfig: RestClientOptions = {
       apiKey: apiKey,
       apiSecret: apiSecret,
-      apiPass: passphrase
+      apiPass: passphrase,
+      demoTrading
     }
     const requestOptions: AxiosRequestConfig = {}
 
@@ -93,13 +97,12 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
     }
 
     this.client = new RestClient(clientConfig, requestOptions)
-
+    // 复用公共适配器实例
     if (OkxTradeAdapter.publicAdapter === undefined) {
       OkxTradeAdapter.publicAdapter = publicAdapter || new OkxPublicAdapter({ httpsProxy, socksProxy })
     }
     this.publicAdapter = OkxTradeAdapter.publicAdapter
   }
-
   // ============================================================================
   // 批量下单限制
   // ============================================================================

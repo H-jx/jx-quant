@@ -23,9 +23,8 @@ import type {
   PlaceOrderParams,
   PositionSide,
   OrderStatus,
-  IPublicAdapter,
   BatchOrderLimits,
-  TradeAdapterInit
+  TradeAdapterInit,
 } from '../types'
 import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
@@ -38,6 +37,7 @@ import {
   createProxyAgent
 } from '../utils'
 import { BinancePublicAdapter } from './BinancePublicAdapter'
+import { IPublicAdapter } from '../BasePublicAdapter'
 
 // Binance API response types
 type numberInString = string | number
@@ -133,9 +133,9 @@ type BinanceTradeAdapterParams = TradeAdapterInit<BinancePublicAdapter>
  * 使用组合模式，公共 API 委托给 BinancePublicAdapter
  */
 export class BinanceTradeAdapter extends BaseTradeAdapter {
-  static publicAdapter = new BinancePublicAdapter()
+  static publicAdapter: BinancePublicAdapter
   /** 组合的公共适配器 */
-  readonly publicAdapter: IPublicAdapter = new BinancePublicAdapter()
+  readonly publicAdapter: IPublicAdapter
 
   protected spotClient: MainClient
   protected futuresClient: USDMClient
@@ -159,7 +159,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     this.spotClient = new MainClient(config, requestOptions)
     this.futuresClient = new USDMClient(config, requestOptions)
     this.deliveryClient = new CoinMClient(config, requestOptions)
-
+    // 复用公共适配器实例
     if (BinanceTradeAdapter.publicAdapter === undefined) {
       BinanceTradeAdapter.publicAdapter = publicAdapter || new BinancePublicAdapter({ httpsProxy, socksProxy })
     }
@@ -714,7 +714,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
   private async batchPlaceFuturesOrders(
     paramsList: PlaceOrderParams[]
   ): Promise<Result<Order>[]> {
-    if (!Array.isArray(paramsList) ||!paramsList[0]) {
+    if (!Array.isArray(paramsList) || !paramsList[0]) {
       return []
     }
     const orderType = paramsList[0].tradeType
@@ -798,7 +798,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     paramsList: PlaceOrderParams[]
   ): Promise<Result<Order>[]> {
 
-    if (!Array.isArray(paramsList) ||!paramsList[0]) {
+    if (!Array.isArray(paramsList) || !paramsList[0]) {
       return []
     }
     const orderType = paramsList[0].tradeType

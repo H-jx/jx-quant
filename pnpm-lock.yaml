@@ -63,6 +63,9 @@ importers:
         specifier: ^8.0.5
         version: 8.0.5
     devDependencies:
+      axios:
+        specifier: ^1.13.2
+        version: 1.13.2
       dotenv:
         specifier: ^16.4.5
         version: 16.4.7
