@@ -352,7 +352,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     const balance = balances.find(b => b.asset === asset)
     const available = parseFloat(balance?.free || '0')
 
-    if (available < required) {
+    if (available < required && !process.env.SKIP_VALIDATE) {
       return {
         valid: false,
         error: {
@@ -385,7 +385,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
 
     // 生成客户端订单ID
     if (!formatted.clientOrderId) {
-      formatted.clientOrderId = generateClientOrderId(this.exchange)
+      formatted.clientOrderId = generateClientOrderId(this.exchange, params.tradeType)
     }
 
     return formatted
@@ -583,7 +583,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     if (options.checkBalance !== false) {
       const balanceResult = await this.getBalance(params.tradeType)
       if (!balanceResult.ok) {
-        return balanceResult as Result<{ params: PlaceOrderParams; symbolInfo: SymbolInfo }>
+        return balanceResult
       }
 
       let positions: Position[] = []

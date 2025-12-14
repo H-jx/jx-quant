@@ -26,6 +26,11 @@ export type {
   OrderStatus,
   PlaceOrderParams,
   Order,
+  StrategyOrder,
+  StrategyOrderParams,
+  StrategyOrderType,
+  StrategyTriggerPriceType,
+  StrategyAttachedOrder,
 
   // 批量下单
   BatchPlaceOrderResult,

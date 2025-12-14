@@ -22,7 +22,7 @@ interface Task {
 }
 
 function assertResult<T>(result: Result<T>, context: string): T {
-  if (!result.ok) {
+  if (result.ok === false) {
     throw new Error(`${context} 失败：${result.error.code} - ${result.error.message}`)
   }
   return result.data

@@ -2,9 +2,10 @@
 // Result 模式 - Go/Rust 风格的错误处理
 // ============================================================================
 
-export type Result<T, E = ErrorInfo> =
-  | { ok: boolean; data: T; error: E }
-  | { ok: false; error: E }
+type ResultSuccess<T> = { ok: true; data: T; }
+type ResultFailure<E> = { ok: false; error: E }
+
+export type Result<T, E = ErrorInfo> = ResultSuccess<T> | ResultFailure<E>
 
 export interface ErrorInfo {
   code: string
@@ -206,6 +207,111 @@ export interface Order {
   /** 更新时间 */
   updateTime?: number
   /** 原始数据 */
+  raw?: unknown
+}
+
+// ============================================================================
+// 策略单(条件单/冰山单等) - OKX 专用
+// ============================================================================
+
+export type StrategyOrderType =
+  | 'conditional'
+  | 'oco'
+  | 'trigger'
+  | 'move_order_stop'
+  | 'iceberg'
+  | 'twap'
+  | 'chase'
+
+export type StrategyTriggerPriceType = 'last' | 'index' | 'mark'
+
+export interface StrategyAttachedOrder<TPrice = string | number> {
+  /** 触发价格 */
+  triggerPrice?: TPrice
+  /** 委托价格 */
+  orderPrice?: TPrice
+  /** 触发价格类型 */
+  triggerPriceType?: StrategyTriggerPriceType
+}
+
+export interface StrategyOrderParams<TQuantity = string | number, TPrice = string | number> {
+  /** 交易对 */
+  symbol: string
+  /** 交易类型 */
+  tradeType: TradeType
+  /** 交易方向 */
+  side: OrderSide
+  /** 策略单类型 */
+  orderType: StrategyOrderType
+  /** 下单数量 */
+  quantity: TQuantity
+  /** 触发价格 (部分策略必填) */
+  triggerPrice?: TPrice
+  /** 触发价格类型 */
+  triggerPriceType?: StrategyTriggerPriceType
+  /** 委托价格 */
+  price?: TPrice
+  /** 持仓方向 (合约必填) */
+  positionSide?: PositionSide
+  /** 保证金模式 (默认 cross) */
+  marginMode?: 'cross' | 'isolated'
+  /** 客户端策略订单ID */
+  clientAlgoId?: string
+  /** 备注标签 */
+  tag?: string
+  /** 指定保证金币种 */
+  currency?: string
+  /** 数量币种 (spot 专用) */
+  targetCurrency?: 'base_ccy' | 'quote_ccy'
+  /** 止盈参数 */
+  takeProfit?: StrategyAttachedOrder<TPrice>
+  /** 止损参数 */
+  stopLoss?: StrategyAttachedOrder<TPrice>
+  /** 回调比例 */
+  callbackRatio?: TPrice
+  /** 回调价差 */
+  callbackSpread?: TPrice
+  /** 激活价格 */
+  activePrice?: TPrice
+  /** 价格偏移 */
+  priceVariance?: TPrice
+  /** 价格范围 */
+  priceSpread?: TPrice
+  /** 价格上限 */
+  priceLimit?: TPrice
+  /** 单次执行数量上限 */
+  sizeLimit?: TQuantity
+  /** 时间间隔 */
+  timeInterval?: string
+  /** 是否只减仓 */
+  reduceOnly?: boolean
+  /** 追踪单参数 */
+  chaseType?: string
+  chaseValue?: TPrice
+  maxChaseType?: string
+  maxChaseValue?: TPrice
+  /** 分批平仓比例 */
+  closeFraction?: TQuantity
+  /** 快速保证金类型 (逐仓) */
+  quickMarginType?: 'manual' | 'auto_borrow' | 'auto_repay'
+}
+
+export interface StrategyOrder {
+  /** OKX 返回的策略单ID */
+  algoOrderId: string
+  /** 客户端策略单ID */
+  clientAlgoId?: string
+  /** 交易对 */
+  symbol: string
+  /** 交易类型 */
+  tradeType: TradeType
+  /** 方向 */
+  side: OrderSide
+  /** 持仓方向 */
+  positionSide?: PositionSide
+  /** 策略类型 */
+  orderType: StrategyOrderType
+  /** 原始响应 */
   raw?: unknown
 }
 

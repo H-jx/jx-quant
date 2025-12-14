@@ -8,7 +8,8 @@ import {
   ChangeStats24hr,
   RestClientOptions,
   FuturesSymbolExchangeInfo,
-  ContactType
+  ContactType,
+  ContractStatus
 } from 'binance'
 import type {
   Exchange,
@@ -426,7 +427,7 @@ export class BinancePublicAdapter extends BasePublicAdapter {
     //   permissionSets: [ 'GRID' ]
     // }
     const symbols = result.data.symbols
-      .filter(s => s.contractStatus === 'TRADING')
+      .filter(s => (s as FuturesSymbolExchangeInfo & {contractStatus: ContractStatus}).contractStatus === 'TRADING')
       .map(s => this.transformDeliverySymbol(s))
 
     this.setCachedSymbols('delivery', symbols)

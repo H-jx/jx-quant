@@ -1,4 +1,6 @@
 import {
+  AlgoOrderRequest,
+  AlgoOrderResult,
   InstrumentType,
   OrderDetails,
   OrderRequest,
@@ -20,6 +22,9 @@ import type {
   OrderStatus,
   BatchOrderLimits,
   TradeAdapterInit,
+  StrategyOrder,
+  StrategyOrderParams,
+  StrategyAttachedOrder,
 } from '../types'
 import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
@@ -30,6 +35,9 @@ import {
   getOkxTdMode,
   wrapAsync,
   createProxyAgent,
+  formatPrice,
+  formatQuantity,
+  generateClientOrderId,
 } from '../utils'
 import { OkxPublicAdapter } from './OkxPublicAdapter'
 import { IPublicAdapter } from '../BasePublicAdapter'
@@ -67,6 +75,9 @@ type OkxOrderDetailResponse = OrderDetails
 type OkxTradeAdapterParams = TradeAdapterInit<OkxPublicAdapter> & {
   demoTrading?: boolean
 }
+
+type NormalizedStrategyOrderParams = StrategyOrderParams<string, string> & { clientAlgoId: string }
+type NormalizedAttachedOrder = StrategyAttachedOrder<string>
 /**
  * OKX 交易 API 适配器
  * 使用组合模式，公共 API 委托给 OkxPublicAdapter
@@ -184,6 +195,106 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
       })
 
     return Ok(positions)
+  }
+
+  /**
+   * 策略/条件单 (OKX Algo Orders)
+   */
+  async placeStrategyOrder(params: StrategyOrderParams): Promise<Result<StrategyOrder>> {
+    if (!params.symbol || !params.tradeType) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'symbol & tradeType are required for strategy order' })
+    }
+
+    if (!params.side) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'side is required for strategy order' })
+    }
+
+    if (!params.orderType) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'orderType is required for strategy order' })
+    }
+
+    const numericQuantity = Number(params.quantity)
+    if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'quantity must be greater than 0 for strategy order' })
+    }
+
+    if (params.tradeType !== 'spot' && !params.positionSide) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'positionSide is required for non-spot strategy orders' })
+    }
+
+    const requiresTrigger = params.orderType === 'trigger' || params.orderType === 'move_order_stop'
+    if (requiresTrigger && params.triggerPrice === undefined) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'triggerPrice is required for trigger/move_order_stop orders' })
+    }
+
+    if ((params.orderType === 'oco' || params.orderType === 'conditional') &&
+      !params.takeProfit?.triggerPrice &&
+      !params.stopLoss?.triggerPrice) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'OCO/conditional orders require takeProfit or stopLoss trigger price' })
+    }
+
+    if ((params.orderType === 'iceberg' || params.orderType === 'twap') && params.price === undefined) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'price is required for iceberg/twap orders' })
+    }
+
+    const symbolResult = await this.getSymbolInfo(params.symbol, params.tradeType)
+    if (!symbolResult.ok) {
+      return Err(symbolResult.error)
+    }
+    const symbolInfo = symbolResult.data
+
+    const formattedParams = this.formatStrategyOrderParams(params, symbolInfo)
+    const formattedQty = parseFloat(formattedParams.quantity)
+    if (!Number.isFinite(formattedQty) || formattedQty <= 0) {
+      return Err({ code: ErrorCodes.INVALID_PARAMS, message: 'Formatted quantity must be greater than 0 for strategy order' })
+    }
+
+    const minQty = parseFloat(symbolInfo.minQty)
+    if (!isNaN(minQty) && minQty > 0 && formattedQty < minQty) {
+      return Err({ code: ErrorCodes.QUANTITY_TOO_SMALL, message: `Quantity ${formattedQty} is less than minimum ${minQty}` })
+    }
+
+    const maxQty = parseFloat(symbolInfo.maxQty)
+    if (!isNaN(maxQty) && maxQty > 0 && formattedQty > maxQty) {
+      return Err({ code: ErrorCodes.QUANTITY_TOO_LARGE, message: `Quantity ${formattedQty} is greater than maximum ${maxQty}` })
+    }
+
+    const request = this.buildAlgoOrderRequest(formattedParams, symbolInfo)
+    const result = await wrapAsync<AlgoOrderResult[]>(
+      () => this.client.placeAlgoOrder(request),
+      ErrorCodes.PLACE_STRATEGY_ORDER_ERROR
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const data = result.data
+    if (!data || data.length === 0) {
+      return Err({ code: ErrorCodes.PLACE_STRATEGY_ORDER_ERROR, message: 'Empty response from exchange' })
+    }
+
+    const orderData = data[0]
+    if (orderData.sCode !== '0') {
+      return Err({
+        code: orderData.sCode,
+        message: orderData.sMsg || 'Strategy order rejected',
+        raw: orderData
+      })
+    }
+
+    const strategyOrder: StrategyOrder = {
+      algoOrderId: orderData.algoId,
+      clientAlgoId: orderData.algoClOrdId || formattedParams.clientAlgoId,
+      symbol: params.symbol,
+      tradeType: params.tradeType,
+      side: params.side,
+      positionSide: params.positionSide,
+      orderType: params.orderType,
+      raw: orderData
+    }
+
+    return Ok(strategyOrder)
   }
 
   /**
@@ -506,6 +617,183 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
   // ============================================================================
   // 私有方法
   // ============================================================================
+
+  private formatStrategyOrderParams(
+    params: StrategyOrderParams,
+    symbolInfo: SymbolInfo
+  ): NormalizedStrategyOrderParams {
+    const formatPx = (value?: string | number) =>
+      value === undefined ? undefined : formatPrice(value, symbolInfo.tickSize)
+    const formatQty = (value?: string | number) =>
+      value === undefined ? undefined : formatQuantity(value, symbolInfo.stepSize)
+    const toStringOrUndefined = (value?: string | number) =>
+      value === undefined ? undefined : String(value)
+
+    const clientAlgoId = params.clientAlgoId || generateClientOrderId('okx', params.tradeType)
+
+    const formatted: NormalizedStrategyOrderParams = {
+      ...params,
+      clientAlgoId,
+      quantity: formatQuantity(params.quantity, symbolInfo.stepSize),
+      triggerPrice: formatPx(params.triggerPrice),
+      price: formatPx(params.price),
+      activePrice: formatPx(params.activePrice),
+      priceVariance: formatPx(params.priceVariance),
+      priceSpread: formatPx(params.priceSpread),
+      priceLimit: formatPx(params.priceLimit),
+      callbackRatio: toStringOrUndefined(params.callbackRatio),
+      callbackSpread: formatPx(params.callbackSpread),
+      sizeLimit: formatQty(params.sizeLimit),
+      chaseValue: toStringOrUndefined(params.chaseValue),
+      maxChaseValue: toStringOrUndefined(params.maxChaseValue),
+      closeFraction: toStringOrUndefined(params.closeFraction),
+      takeProfit: this.formatAttachedOrder(params.takeProfit, formatPx),
+      stopLoss: this.formatAttachedOrder(params.stopLoss, formatPx)
+    }
+
+    return formatted
+  }
+
+  private buildAlgoOrderRequest(
+    params: NormalizedStrategyOrderParams,
+    symbolInfo: SymbolInfo
+  ): AlgoOrderRequest {
+    const request: AlgoOrderRequest = {
+      instId: symbolInfo.rawSymbol,
+      tdMode: getOkxTdMode(params.tradeType, params.marginMode ?? 'cross'),
+      side: params.side,
+      ordType: params.orderType,
+      sz: params.quantity,
+      algoClOrdId: params.clientAlgoId
+    }
+
+    if (params.tradeType !== 'spot' && params.positionSide) {
+      request.posSide = params.positionSide
+    }
+
+    if (params.currency) {
+      request.ccy = params.currency
+    }
+
+    if (params.targetCurrency) {
+      request.tgtCcy = params.targetCurrency
+    }
+
+    if (params.tag) {
+      request.tag = params.tag
+    }
+
+    if (params.price) {
+      request.orderPx = params.price
+    }
+
+    if (params.triggerPrice) {
+      request.triggerPx = params.triggerPrice
+      request.triggerPxType = params.triggerPriceType || 'last'
+    }
+
+    if (params.takeProfit?.triggerPrice) {
+      request.tpTriggerPx = params.takeProfit.triggerPrice
+      if (params.takeProfit.orderPrice) {
+        request.tpOrdPx = params.takeProfit.orderPrice
+      }
+      if (params.takeProfit.triggerPriceType) {
+        request.tpTriggerPxType = params.takeProfit.triggerPriceType
+      }
+    }
+
+    if (params.stopLoss?.triggerPrice) {
+      request.slTriggerPx = params.stopLoss.triggerPrice
+      if (params.stopLoss.orderPrice) {
+        request.slOrdPx = params.stopLoss.orderPrice
+      }
+      if (params.stopLoss.triggerPriceType) {
+        request.slTriggerPxType = params.stopLoss.triggerPriceType
+      }
+    }
+
+    if (params.reduceOnly !== undefined) {
+      request.reduceOnly = params.reduceOnly
+    }
+
+    if (params.callbackRatio) {
+      request.callbackRatio = params.callbackRatio
+    }
+
+    if (params.callbackSpread) {
+      request.callbackSpread = params.callbackSpread
+    }
+
+    if (params.activePrice) {
+      request.activePx = params.activePrice
+    }
+
+    if (params.priceVariance) {
+      request.pxVar = params.priceVariance
+    }
+
+    if (params.priceSpread) {
+      request.pxSpread = params.priceSpread
+    }
+
+    if (params.priceLimit) {
+      request.pxLimit = params.priceLimit
+    }
+
+    if (params.sizeLimit) {
+      request.szLimit = params.sizeLimit
+    }
+
+    if (params.timeInterval) {
+      request.timeInterval = params.timeInterval
+    }
+
+    if (params.chaseType) {
+      request.chaseType = params.chaseType
+    }
+
+    if (params.chaseValue) {
+      request.chaseVal = params.chaseValue
+    }
+
+    if (params.maxChaseType) {
+      request.maxChaseType = params.maxChaseType
+    }
+
+    if (params.maxChaseValue) {
+      request.maxChaseVal = params.maxChaseValue
+    }
+
+    if (params.closeFraction) {
+      request.closeFraction = params.closeFraction
+    }
+
+    if (params.quickMarginType) {
+      request.quickMgnType = params.quickMarginType
+    }
+
+    return request
+  }
+
+  private formatAttachedOrder(
+    attached: StrategyAttachedOrder | undefined,
+    formatPx: (value?: string | number) => string | undefined
+  ): NormalizedAttachedOrder | undefined {
+    if (!attached || attached.triggerPrice === undefined) {
+      return undefined
+    }
+
+    const triggerPrice = formatPx(attached.triggerPrice)
+    if (!triggerPrice) {
+      return undefined
+    }
+
+    return {
+      triggerPrice,
+      orderPrice: formatPx(attached.orderPrice),
+      triggerPriceType: attached.triggerPriceType
+    }
+  }
 
   private transformOrder(
     orderData: OkxOrderDetailResponse,

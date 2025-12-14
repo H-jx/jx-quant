@@ -71,7 +71,7 @@ export async function bootstrapAdapters(): Promise<AdapterSuite> {
     binance: new BinancePublicAdapter({ httpsProxy: env.proxy }),
     okx: new OkxPublicAdapter({ httpsProxy: env.proxy })
   }
-  console.log(env.simulated)
+  log.info(`模拟，不下单 = ${env.simulated}`)
   const tradeAdapters = {
     binance: new BinanceTradeAdapter({
       apiKey: env.binanceApiKey,
@@ -102,17 +102,17 @@ export async function runWithErrorHandling(taskName: string, fn: () => Promise<v
   }
 }
 
-export async function ensureSymbolLoaded(adapter: BasePublicAdapter | BaseTradeAdapter, symbol: string, tradeType: TradeType) {
+export async function ensureSymbolLoaded(adapter: BaseTradeAdapter | BasePublicAdapter, symbol: string, tradeType: TradeType) {
   const info = await adapter.getSymbolInfo(symbol, tradeType)
-  if (!info.ok) {
-    throw new Error(`无法加载 ${symbol} 的交易对信息：${info.error.message}`)
+  if (info.ok === false) {
+    throw new Error(`无法加载 ${symbol} 的交易对信息：${(info as any).error.message}`)
   }
   return info.data
 }
 
 export async function placeOrderSafe(adapter: BaseTradeAdapter, params: PlaceOrderParams<number, number>) {
   const result = await adapter.placeOrder(params)
-  if (!result.ok) {
+  if (result.ok === false) {
     log.error('下单失败', result.error)
   } else {
     log.success('下单成功', result.data)

@@ -2,7 +2,8 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import { SocksProxyAgent } from 'socks-proxy-agent'
 import type { Agent } from 'node:http'
 import type { Exchange, TradeType, Result, ErrorInfo, AdapterOptions } from './types'
-import { InstrumentType, TradeMode } from 'okx-api'
+import type { InstrumentType, TradeMode } from 'okx-api'
+import { BinanceBaseUrlKey, generateNewOrderId } from 'binance'
 
 
 // ============================================================================
@@ -299,11 +300,11 @@ export async function wrapAsync<T>(
     const data = await fn()
     return { ok: true, data }
   } catch (e) {
-    const error = e as Error & { code?: string; data?: unknown; msg?: string }
+    const error = e as Error & { code?: string; data?: unknown; body?: any; msg?: string }
     return Err({
       code: error.code || errorCode,
       message: error.message || error.msg || 'Unknown error',
-      raw: error.data || error
+      raw: error.data ||  error.body || error
     })
   }
 }
@@ -356,11 +357,33 @@ export function extractBinanceError(response: unknown): ErrorInfo | null {
 
 /**
  * 生成客户端订单ID
+ * 生成格式： x-U5D79M5BPYqsloHNJa-r8L0XPH6zLF binance usdm 生成规则
  */
-export function generateClientOrderId(prefix: string = 'jx'): string {
-  const timestamp = Date.now()
-  const random = Math.random().toString(36).substring(2, 8)
-  return `${prefix}${timestamp}${random}`
+export function generateClientOrderId(exchange: Exchange, tradeType: TradeType): string {
+  if (exchange === 'binance') {
+    const networkMap: Record<TradeType, BinanceBaseUrlKey> = {
+      spot: 'spot',
+      futures: 'usdm',
+      delivery: 'coinm'
+    }
+    return generateNewOrderId(networkMap[tradeType])
+  } else if (exchange === 'okx') {
+    // OKX: 客户端订单ID要求 1-32 位，字母（区分大小写）与数字的组合
+    // 这里生成一个 20 位的随机字符串
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    const prefix = 'hbokx'
+    const length = 32 - prefix.length
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return `${prefix}${result}`
+  } else {
+    // 其他交易所，简单生成一个时间戳+随机数
+    const timestamp = Date.now().toString(36)
+    const random = Math.random().toString(36).substring(2, 8)
+    return `hb-${timestamp}-${random}`
+  }
 }
 
 // ============================================================================

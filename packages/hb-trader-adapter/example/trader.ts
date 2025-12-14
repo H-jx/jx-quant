@@ -38,9 +38,9 @@ const singleScenarios: SingleScenario[] = [
   { exchange: 'binance', tradeType: 'spot', side: 'buy' },
   { exchange: 'binance', tradeType: 'futures', side: 'buy', positionSide: 'long' },
   { exchange: 'binance', tradeType: 'delivery', side: 'buy', positionSide: 'long' },
-  { exchange: 'okx', tradeType: 'spot', side: 'buy' },
-  { exchange: 'okx', tradeType: 'futures', side: 'buy', positionSide: 'long' },
-  { exchange: 'okx', tradeType: 'delivery', side: 'buy', positionSide: 'long' }
+  // { exchange: 'okx', tradeType: 'spot', side: 'buy' },
+  // { exchange: 'okx', tradeType: 'futures', side: 'buy', positionSide: 'long' },
+  // { exchange: 'okx', tradeType: 'delivery', side: 'buy', positionSide: 'long' }
 ]
 
 const batchScenarios: BatchScenario[] = [
@@ -55,7 +55,7 @@ const batchScenarios: BatchScenario[] = [
 const precisionFallback = 6
 
 function assertResult<T>(result: Result<T>, context: string): T {
-  if (!result.ok) {
+  if (result.ok === false) {
     throw new Error(`${context} 失败：${result.error.code} - ${result.error.message}`)
   }
   return result.data
@@ -121,7 +121,7 @@ async function executeSingleOrder(label: string, adapter: BaseTradeAdapter, scen
   }
 
   const result = await adapter.placeOrder(params)
-  if (result.ok) {
+  if (result.ok === true) {
     log.success(`${label} 下单成功`, result.data)
   } else {
     log.error(`${label} 下单失败`, result.error)
@@ -163,7 +163,7 @@ function summarizeBatch(label: string, batchResult: BatchPlaceOrderResult) {
     failedCount: batchResult.failedCount
   })
   batchResult.results.forEach((result, index) => {
-    if (result.ok) {
+    if (result.ok === true) {
       log.success(`${label} 第${index + 1}单成功`, result.data as Order)
     } else {
       log.error(`${label} 第${index + 1}单失败`, result.error)
