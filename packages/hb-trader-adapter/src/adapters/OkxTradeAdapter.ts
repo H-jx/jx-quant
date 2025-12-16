@@ -7,7 +7,9 @@ import {
   OrderType,
   RestClient,
   RestClientOptions,
-  SetLeverageRequest
+  SetLeverageRequest,
+  AlgoOrderDetailsResult,
+  AlgoOrderType
 } from 'okx-api'
 import type { AxiosRequestConfig } from 'axios'
 import type {
@@ -21,7 +23,12 @@ import type {
   PositionSide,
   OrderStatus,
   BatchOrderLimits,
-  TradeAdapterInit
+  TradeAdapterInit,
+  StrategyOrderParams,
+  StrategyOrder,
+  StrategyOrderStatus,
+  StrategyOrderType,
+  StrategyTriggerPriceType,
 } from '../types'
 import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
@@ -533,6 +540,335 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
       createTime: parseInt(orderData.cTime),
       updateTime: parseInt(orderData.uTime),
       raw: orderData
+    }
+  }
+
+  // ============================================================================
+  // 策略订单 (Algo Order) 实现
+  // ============================================================================
+
+  /**
+   * 策略下单 (止盈止损/计划委托/移动止盈止损)
+   */
+  async placeStrategyOrder(params: StrategyOrderParams): Promise<Result<StrategyOrder>> {
+    const instId = unifiedToOkx(params.symbol, params.tradeType)
+
+    // 构建 OKX 策略订单请求
+    const algoRequest: AlgoOrderRequest = {
+      instId,
+      tdMode: getOkxTdMode(params.tradeType),
+      side: params.side,
+      ordType: this.mapStrategyOrderType(params.strategyType),
+      sz: String(params.quantity),
+    }
+
+    // 持仓方向 (合约必填)
+    if (params.tradeType !== 'spot' && params.positionSide) {
+      algoRequest.posSide = params.positionSide
+    }
+
+    // 触发价类型
+    const triggerPxType = params.triggerPriceType || 'last'
+
+    // 根据策略类型设置不同的字段
+    switch (params.strategyType) {
+      case 'stop-loss':
+        // 止损: slTriggerPx, slOrdPx
+        algoRequest.slTriggerPx = String(params.triggerPrice)
+        algoRequest.slTriggerPxType = triggerPxType
+        algoRequest.slOrdPx = params.orderPrice ? String(params.orderPrice) : '-1' // -1 表示市价
+        break
+
+      case 'take-profit':
+        // 止盈: tpTriggerPx, tpOrdPx
+        algoRequest.tpTriggerPx = String(params.triggerPrice)
+        algoRequest.tpTriggerPxType = triggerPxType
+        algoRequest.tpOrdPx = params.orderPrice ? String(params.orderPrice) : '-1'
+        break
+
+      case 'trigger':
+        // 计划委托: triggerPx, orderPx
+        algoRequest.triggerPx = String(params.triggerPrice)
+        algoRequest.triggerPxType = triggerPxType
+        algoRequest.orderPx = params.orderPrice ? String(params.orderPrice) : '-1'
+        // 附带止盈止损
+        if (params.attachedOrders && params.attachedOrders.length > 0) {
+          algoRequest.attachAlgoOrds = params.attachedOrders.map(ao => ({
+            tpTriggerPx: ao.tpTriggerPrice ? String(ao.tpTriggerPrice) : undefined,
+            tpOrdPx: ao.tpOrderPrice ? String(ao.tpOrderPrice) : undefined,
+            tpTriggerPxType: ao.tpTriggerPriceType,
+            slTriggerPx: ao.slTriggerPrice ? String(ao.slTriggerPrice) : undefined,
+            slOrdPx: ao.slOrderPrice ? String(ao.slOrderPrice) : undefined,
+            slTriggerPxType: ao.slTriggerPriceType,
+          }))
+        }
+        break
+
+      case 'trailing-stop':
+        // 移动止盈止损: callbackRatio / callbackSpread, activePx
+        if (params.callbackRatio !== undefined) {
+          algoRequest.callbackRatio = String(params.callbackRatio)
+        }
+        if (params.callbackSpread !== undefined) {
+          algoRequest.callbackSpread = String(params.callbackSpread)
+        }
+        if (params.activationPrice !== undefined) {
+          algoRequest.activePx = String(params.activationPrice)
+        }
+        break
+    }
+
+    // 只减仓
+    if (params.reduceOnly) {
+      algoRequest.reduceOnly = true
+    }
+
+    // 客户端策略订单ID
+    if (params.clientAlgoId) {
+      algoRequest.algoClOrdId = params.clientAlgoId
+    }
+
+    const result = await wrapAsync<AlgoOrderResult[]>(
+      () => this.client.placeAlgoOrder(algoRequest),
+      ErrorCodes.PLACE_STRATEGY_ORDER_ERROR
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const data = result.data
+    if (!data || data.length === 0) {
+      return Err({
+        code: ErrorCodes.PLACE_STRATEGY_ORDER_ERROR,
+        message: 'Empty response from exchange'
+      })
+    }
+
+    const algoData = data[0]
+
+    // 检查下单是否成功
+    if (algoData.sCode !== '0') {
+      return Err({
+        code: algoData.sCode,
+        message: algoData.sMsg,
+        raw: data
+      })
+    }
+
+    // 返回策略订单信息
+    const strategyOrder: StrategyOrder = {
+      algoId: algoData.algoId,
+      clientAlgoId: algoData.algoClOrdId || params.clientAlgoId,
+      symbol: params.symbol,
+      tradeType: params.tradeType,
+      side: params.side,
+      positionSide: params.positionSide,
+      strategyType: params.strategyType,
+      status: 'live',
+      triggerPrice: String(params.triggerPrice),
+      triggerPriceType: params.triggerPriceType,
+      orderPrice: params.orderPrice ? String(params.orderPrice) : undefined,
+      quantity: String(params.quantity),
+      raw: data
+    }
+
+    return Ok(strategyOrder)
+  }
+
+  /**
+   * 撤销策略订单
+   */
+  async cancelStrategyOrder(
+    symbol: string,
+    algoId: string,
+    tradeType: TradeType
+  ): Promise<Result<StrategyOrder>> {
+    const instId = unifiedToOkx(symbol, tradeType)
+
+    const result = await wrapAsync<AlgoOrderResult[]>(
+      () => this.client.cancelAlgoOrder([{ instId, algoId }]),
+      ErrorCodes.CANCEL_ORDER_ERROR
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const data = result.data
+    if (!data || data.length === 0) {
+      return Err({
+        code: ErrorCodes.CANCEL_ORDER_ERROR,
+        message: 'Empty response from exchange'
+      })
+    }
+
+    const algoData = data[0]
+    if (algoData.sCode !== '0') {
+      return Err({
+        code: algoData.sCode,
+        message: algoData.sMsg,
+        raw: data
+      })
+    }
+
+    // 查询策略订单详情
+    return this.getStrategyOrder(algoId, tradeType)
+  }
+
+  /**
+   * 获取策略订单详情
+   */
+  async getStrategyOrder(
+    algoId: string,
+    _tradeType: TradeType
+  ): Promise<Result<StrategyOrder>> {
+    const result = await wrapAsync<AlgoOrderDetailsResult[]>(
+      () => this.client.getAlgoOrderDetails({ algoId }),
+      'GET_STRATEGY_ORDER_ERROR'
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const data = result.data
+    if (!data || data.length === 0) {
+      return Err({
+        code: ErrorCodes.ORDER_NOT_FOUND,
+        message: `Strategy order ${algoId} not found`
+      })
+    }
+
+    const algoData = data[0]
+    return Ok(this.transformStrategyOrder(algoData))
+  }
+
+  /**
+   * 获取未完成策略订单列表
+   */
+  async getOpenStrategyOrders(
+    symbol?: string,
+    tradeType?: TradeType
+  ): Promise<Result<StrategyOrder[]>> {
+    const params: { ordType: AlgoOrderType; instType?: InstrumentType; instId?: string } = {
+      ordType: 'trigger'
+    }
+
+    if (tradeType) {
+      params.instType = getOkxInstType(tradeType)
+    }
+    if (symbol && tradeType) {
+      params.instId = unifiedToOkx(symbol, tradeType)
+    }
+
+    const result = await wrapAsync<AlgoOrderDetailsResult[]>(
+      () => this.client.getAlgoOrderList(params),
+      'GET_OPEN_STRATEGY_ORDERS_ERROR'
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const orders = result.data.map(algoData => this.transformStrategyOrder(algoData))
+    return Ok(orders)
+  }
+
+  // ============================================================================
+  // 策略订单辅助方法
+  // ============================================================================
+
+  private transformStrategyOrder(algoData: AlgoOrderDetailsResult): StrategyOrder {
+    const parts = algoData.instId.split('-')
+    const unifiedSymbol = `${parts[0]}-${parts[1]}`
+    const orderTradeType = this.getTradeTypeFromInstId(algoData.instId)
+
+    // 确定触发价格
+    let triggerPrice = ''
+    if (algoData.triggerPx) {
+      triggerPrice = algoData.triggerPx
+    } else if (algoData.slTriggerPx) {
+      triggerPrice = algoData.slTriggerPx
+    } else if (algoData.tpTriggerPx) {
+      triggerPrice = algoData.tpTriggerPx
+    }
+
+    // 确定委托价格
+    let orderPrice: string | undefined
+    if (algoData.ordPx) {
+      orderPrice = algoData.ordPx
+    } else if (algoData.slOrdPx) {
+      orderPrice = algoData.slOrdPx
+    } else if (algoData.tpOrdPx) {
+      orderPrice = algoData.tpOrdPx
+    }
+
+    return {
+      algoId: algoData.algoId,
+      clientAlgoId: algoData.algoClOrdId || undefined,
+      symbol: unifiedSymbol,
+      tradeType: orderTradeType,
+      side: algoData.side as 'buy' | 'sell',
+      positionSide: algoData.posSide ? algoData.posSide.toLowerCase() as PositionSide : undefined,
+      strategyType: this.reverseMapStrategyOrderType(algoData.ordType),
+      status: this.mapStrategyOrderStatus(algoData.state),
+      triggerPrice,
+      triggerPriceType: (algoData.triggerPxType || algoData.slTriggerPxType || algoData.tpTriggerPxType || 'last') as StrategyTriggerPriceType,
+      orderPrice,
+      quantity: algoData.sz,
+      tpTriggerPrice: algoData.tpTriggerPx || undefined,
+      tpOrderPrice: algoData.tpOrdPx || undefined,
+      slTriggerPrice: algoData.slTriggerPx || undefined,
+      slOrderPrice: algoData.slOrdPx || undefined,
+      triggerTime: algoData.triggerTime ? parseInt(algoData.triggerTime) : undefined,
+      raw: algoData
+    }
+  }
+
+  private mapStrategyOrderType(strategyType: StrategyOrderType): AlgoOrderRequest['ordType'] {
+    switch (strategyType) {
+      case 'stop-loss':
+      case 'take-profit':
+        return 'conditional'
+      case 'trigger':
+        return 'trigger'
+      case 'trailing-stop':
+        return 'move_order_stop'
+      default:
+        return 'conditional'
+    }
+  }
+
+  private reverseMapStrategyOrderType(ordType: string): StrategyOrderType {
+    switch (ordType) {
+      case 'conditional':
+      case 'oco':
+        return 'stop-loss' // 默认按止损处理，实际需要根据具体字段判断
+      case 'trigger':
+        return 'trigger'
+      case 'move_order_stop':
+        return 'trailing-stop'
+      default:
+        return 'trigger'
+    }
+  }
+
+  private mapStrategyOrderStatus(state: string): StrategyOrderStatus {
+    switch (state) {
+      case 'live':
+        return 'live'
+      case 'effective':
+        return 'effective'
+      case 'canceled':
+        return 'canceled'
+      case 'order_failed':
+      case 'partially_failed':
+        return 'failed'
+      case 'partially_effective':
+        return 'partially_effective'
+      default:
+        return 'live'
     }
   }
 

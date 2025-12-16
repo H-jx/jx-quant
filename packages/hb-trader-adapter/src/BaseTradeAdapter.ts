@@ -12,7 +12,9 @@ import type {
   ValidationResult,
   Ticker,
   OrderBook,
-  Exchange
+  Exchange,
+  StrategyOrderParams,
+  StrategyOrder,
 } from './types'
 import { Ok, Err } from './utils'
 import { formatPrice, formatQuantity, generateClientOrderId } from './utils'
@@ -110,6 +112,35 @@ export interface ITradeAdapter extends IPublicAdapter {
     tradeType: TradeType,
     positionSide?: PositionSide
   ): Promise<Result<void>>
+
+  // ============================================================================
+  // 策略订单 (Algo Order)
+  // ============================================================================
+
+  /** 策略下单 (止盈止损/计划委托/移动止盈止损) */
+  placeStrategyOrder(params: StrategyOrderParams): Promise<Result<StrategyOrder>>
+
+  /** 批量策略下单 */
+  placeStrategyOrders(paramsList: StrategyOrderParams[]): Promise<Result<StrategyOrder>[]>
+
+  /** 撤销策略订单 */
+  cancelStrategyOrder(
+    symbol: string,
+    algoId: string,
+    tradeType: TradeType
+  ): Promise<Result<StrategyOrder>>
+
+  /** 获取策略订单详情 */
+  getStrategyOrder(
+    algoId: string,
+    tradeType: TradeType
+  ): Promise<Result<StrategyOrder>>
+
+  /** 获取未完成策略订单列表 */
+  getOpenStrategyOrders(
+    symbol?: string,
+    tradeType?: TradeType
+  ): Promise<Result<StrategyOrder[]>>
 }
 
 /**
@@ -135,6 +166,12 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
   abstract getOrder(symbol: string, orderId: string, tradeType: TradeType): Promise<Result<Order>>
   abstract getOpenOrders(symbol?: string, tradeType?: TradeType): Promise<Result<Order[]>>
   abstract setLeverage(symbol: string, leverage: number, tradeType: TradeType, positionSide?: PositionSide): Promise<Result<void>>
+
+  // 策略订单抽象方法
+  abstract placeStrategyOrder(params: StrategyOrderParams): Promise<Result<StrategyOrder>>
+  abstract cancelStrategyOrder(symbol: string, algoId: string, tradeType: TradeType): Promise<Result<StrategyOrder>>
+  abstract getStrategyOrder(algoId: string, tradeType: TradeType): Promise<Result<StrategyOrder>>
+  abstract getOpenStrategyOrders(symbol?: string, tradeType?: TradeType): Promise<Result<StrategyOrder[]>>
 
   /** 执行单个下单 (子类实现具体的交易所调用) */
   protected abstract doPlaceOrder(params: PlaceOrderParams, symbolInfo: SymbolInfo): Promise<Result<Order>>
@@ -622,7 +659,22 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
     return Ok({ params: formattedParams, symbolInfo })
   }
 
+  // ============================================================================
+  // 策略订单批量下单 (默认实现: 串行调用单个策略下单)
+  // ============================================================================
 
+  /**
+   * 批量策略下单
+   * 默认实现为串行调用 placeStrategyOrder，子类可覆盖实现批量接口
+   */
+  async placeStrategyOrders(paramsList: StrategyOrderParams[]): Promise<Result<StrategyOrder>[]> {
+    const results: Result<StrategyOrder>[] = []
+    for (const params of paramsList) {
+      const result = await this.placeStrategyOrder(params)
+      results.push(result)
+    }
+    return results
+  }
 
   /**
    * 销毁适配器

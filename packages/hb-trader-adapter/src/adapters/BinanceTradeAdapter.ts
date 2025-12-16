@@ -10,7 +10,9 @@ import {
   OrderType,
   OrderSide,
   SelfTradePreventionMode,
-  RestClientOptions
+  RestClientOptions,
+  FuturesAlgoOrderResponse,
+  FuturesCancelAlgoOrderResponse,
 } from 'binance'
 import type { AxiosRequestConfig } from 'axios'
 import type {
@@ -25,6 +27,11 @@ import type {
   OrderStatus,
   BatchOrderLimits,
   TradeAdapterInit,
+  StrategyOrderParams,
+  StrategyOrder,
+  StrategyOrderStatus,
+  StrategyOrderType,
+  StrategyTriggerPriceType,
 } from '../types'
 import { Ok, Err } from '../utils'
 import { BaseTradeAdapter } from '../BaseTradeAdapter'
@@ -99,6 +106,26 @@ interface BinanceFuturesOrderResponse {
   executedQty: numberInString
   updateTime: number
 }
+
+interface BinanceAlgoOrderResponse {
+  algoId: number
+  clientAlgoId?: string
+  symbol: string
+  side: string
+  positionSide?: string
+  algoStatus: string
+  orderType: string
+  price?: numberInString
+  quantity?: numberInString
+  triggerPrice?: numberInString
+  workingType?: string
+  activationPrice?: numberInString
+  callbackRate?: numberInString
+  createTime?: number
+  updateTime?: number
+  triggerTime?: number
+}
+
 export interface OrderFill {
   price: numberInString;
   qty: numberInString;
@@ -946,6 +973,320 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
     const symbol = `${base}-USD`
 
     return this.transformOrder({ ...data, avgPrice: data.avgPrice }, symbol, 'delivery')
+  }
+
+  // ============================================================================
+  // 策略订单 (Algo Order) 实现
+  // ============================================================================
+
+  /**
+   * 策略下单 (止盈止损/计划委托/移动止盈止损)
+   * Binance 合约使用 /fapi/v1/algoOrder 接口
+   */
+  async placeStrategyOrder(params: StrategyOrderParams): Promise<Result<StrategyOrder>> {
+    if (params.tradeType === 'spot') {
+      return Err({
+        code: ErrorCodes.INVALID_TRADE_TYPE,
+        message: 'Binance spot does not support strategy orders through algo API'
+      })
+    }
+
+    const rawSymbol = unifiedToBinance(params.symbol, params.tradeType)
+
+    // 构建 Binance 策略订单请求
+    const algoRequest: {
+      algoType: 'CONDITIONAL'
+      symbol: string
+      side: 'BUY' | 'SELL'
+      positionSide?: 'LONG' | 'SHORT' | 'BOTH'
+      type: string
+      quantity?: string
+      price?: string
+      triggerPrice?: string
+      workingType?: 'MARK_PRICE' | 'CONTRACT_PRICE'
+      reduceOnly?: string
+      clientAlgoId?: string
+      activationPrice?: string
+      callbackRate?: string
+    } = {
+      algoType: 'CONDITIONAL',
+      symbol: rawSymbol,
+      side: params.side.toUpperCase() as 'BUY' | 'SELL',
+      type: this.mapBinanceStrategyOrderType(params.strategyType, params.orderPrice),
+      quantity: String(params.quantity),
+      triggerPrice: String(params.triggerPrice),
+    }
+
+    // 持仓方向
+    if (params.positionSide) {
+      algoRequest.positionSide = params.positionSide.toUpperCase() as 'LONG' | 'SHORT'
+    } else {
+      algoRequest.positionSide = 'BOTH'
+    }
+
+    // 触发价类型
+    if (params.triggerPriceType) {
+      algoRequest.workingType = params.triggerPriceType === 'mark' ? 'MARK_PRICE' : 'CONTRACT_PRICE'
+    }
+
+    // 委托价格 (限价单)
+    if (params.orderPrice && Number(params.orderPrice) > 0) {
+      algoRequest.price = String(params.orderPrice)
+    }
+
+    // 只减仓
+    if (params.reduceOnly) {
+      algoRequest.reduceOnly = 'true'
+    }
+
+    // 客户端策略订单ID
+    if (params.clientAlgoId) {
+      algoRequest.clientAlgoId = params.clientAlgoId
+    }
+
+    // 移动止盈止损专用参数
+    if (params.strategyType === 'trailing-stop') {
+      if (params.activationPrice !== undefined) {
+        algoRequest.activationPrice = String(params.activationPrice)
+      }
+      if (params.callbackRatio !== undefined) {
+        // Binance callbackRate 范围是 0.1-10，代表 0.1%-10%
+        algoRequest.callbackRate = String(params.callbackRatio * 100)
+      }
+    }
+
+    const result = await wrapAsync<BinanceAlgoOrderResponse>(
+      () => {
+        if (params.tradeType === 'futures') {
+          return this.futuresClient.submitNewAlgoOrder(algoRequest as any)
+        } else {
+          throw new Error('Not implemented delivery algo order')
+        }
+      },
+      ErrorCodes.PLACE_STRATEGY_ORDER_ERROR
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const data = result.data
+
+    // 返回策略订单信息
+    const strategyOrder: StrategyOrder = {
+      algoId: String(data.algoId),
+      clientAlgoId: data.clientAlgoId || params.clientAlgoId,
+      symbol: params.symbol,
+      tradeType: params.tradeType,
+      side: params.side,
+      positionSide: params.positionSide,
+      strategyType: params.strategyType,
+      status: this.mapBinanceAlgoOrderStatus(data.algoStatus),
+      triggerPrice: String(params.triggerPrice),
+      triggerPriceType: params.triggerPriceType,
+      orderPrice: params.orderPrice ? String(params.orderPrice) : undefined,
+      quantity: String(params.quantity),
+      createTime: data.createTime,
+      updateTime: data.updateTime,
+      raw: data
+    }
+
+    return Ok(strategyOrder)
+  }
+
+  /**
+   * 撤销策略订单
+   */
+  async cancelStrategyOrder(
+    symbol: string,
+    algoId: string,
+    tradeType: TradeType
+  ): Promise<Result<StrategyOrder>> {
+    if (tradeType === 'spot') {
+      return Err({
+        code: ErrorCodes.INVALID_TRADE_TYPE,
+        message: 'Binance spot does not support strategy orders through algo API'
+      })
+    }
+
+    // const rawSymbol = unifiedToBinance(symbol, tradeType)
+
+    const result = await wrapAsync<FuturesCancelAlgoOrderResponse>(
+      () => {
+        if (tradeType === 'futures') {
+          return this.futuresClient.cancelAlgoOrder({ algoId: parseInt(algoId) })
+        } else {
+          throw new Error('Not implemented delivery cancel algo order')
+        }
+      },
+      ErrorCodes.CANCEL_ORDER_ERROR
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    // 返回取消后的订单信息
+    return this.getStrategyOrder(algoId, tradeType)
+  }
+
+  /**
+   * 获取策略订单详情
+   */
+  async getStrategyOrder(
+    algoId: string,
+    tradeType: TradeType
+  ): Promise<Result<StrategyOrder>> {
+    if (tradeType === 'spot') {
+      return Err({
+        code: ErrorCodes.INVALID_TRADE_TYPE,
+        message: 'Binance spot does not support strategy orders through algo API'
+      })
+    }
+
+    const result = await wrapAsync<BinanceAlgoOrderResponse>(
+      () => {
+        if (tradeType === 'futures') {
+          return this.futuresClient.getAlgoOrder({ algoId: parseInt(algoId) })
+        } else {
+          throw new Error('Not implemented delivery get algo order')
+        }
+      },
+      'GET_STRATEGY_ORDER_ERROR'
+    )
+
+    if (!result.ok) {
+      return Err(result.error)
+    }
+
+    const data = result.data
+    return Ok(this.transformBinanceAlgoOrder(data, tradeType))
+  }
+
+  /**
+   * 获取未完成策略订单列表
+   */
+  async getOpenStrategyOrders(
+    symbol?: string,
+    tradeType?: TradeType
+  ): Promise<Result<StrategyOrder[]>> {
+    const orders: StrategyOrder[] = []
+
+    // 获取 USDM 策略订单
+    if (!tradeType || tradeType === 'futures') {
+      const params: { symbol?: string } = {}
+      if (symbol) {
+        params.symbol = unifiedToBinance(symbol, 'futures')
+      }
+
+      const futuresResult = await wrapAsync<FuturesAlgoOrderResponse[]>(
+        () => this.futuresClient.getOpenAlgoOrders(params),
+        'GET_FUTURES_OPEN_STRATEGY_ORDERS_ERROR'
+      )
+
+      if (futuresResult.ok && futuresResult.data) {
+        orders.push(...futuresResult.data.map(o => this.transformBinanceAlgoOrder(o, 'futures')))
+      }
+    }
+
+    // 获取 COINM 策略订单
+    if (!tradeType || tradeType === 'delivery') {
+      return Err({
+        code: "NOT_IMPLEMENTED",
+        message: 'Binance delivery algo orders not implemented'
+      })
+    }
+
+    return Ok(orders)
+  }
+
+  // ============================================================================
+  // 策略订单辅助方法
+  // ============================================================================
+
+  private transformBinanceAlgoOrder(
+    data: BinanceAlgoOrderResponse,
+    tradeType: TradeType
+  ): StrategyOrder {
+    // 转换 symbol
+    let symbol: string
+    if (tradeType === 'delivery') {
+      const [pair] = data.symbol.split('_')
+      const base = pair.replace(/USD$/, '')
+      symbol = `${base}-USD`
+    } else {
+      const { base, quote } = parseBinanceSymbol(data.symbol)
+      symbol = `${base}-${quote}`
+    }
+
+    return {
+      algoId: String(data.algoId),
+      clientAlgoId: data.clientAlgoId || undefined,
+      symbol,
+      tradeType,
+      side: data.side.toLowerCase() as 'buy' | 'sell',
+      positionSide: data.positionSide ? data.positionSide.toLowerCase() as PositionSide : undefined,
+      strategyType: this.reverseBinanceStrategyOrderType(data.orderType),
+      status: this.mapBinanceAlgoOrderStatus(data.algoStatus),
+      triggerPrice: String(data.triggerPrice || ''),
+      triggerPriceType: data.workingType === 'MARK_PRICE' ? 'mark' : 'last',
+      orderPrice: data.price ? String(data.price) : undefined,
+      quantity: String(data.quantity || ''),
+      createTime: data.createTime,
+      updateTime: data.updateTime,
+      triggerTime: data.triggerTime || undefined,
+      raw: data
+    }
+  }
+
+  private mapBinanceStrategyOrderType(strategyType: StrategyOrderType, orderPrice?: string | number): string {
+    const isMarket = !orderPrice || Number(orderPrice) <= 0
+
+    switch (strategyType) {
+      case 'stop-loss':
+        return isMarket ? 'STOP_MARKET' : 'STOP'
+      case 'take-profit':
+        return isMarket ? 'TAKE_PROFIT_MARKET' : 'TAKE_PROFIT'
+      case 'trigger':
+        return isMarket ? 'STOP_MARKET' : 'STOP' // Binance 没有纯计划委托，使用 STOP
+      case 'trailing-stop':
+        return 'TRAILING_STOP_MARKET'
+      default:
+        return 'STOP_MARKET'
+    }
+  }
+
+  private reverseBinanceStrategyOrderType(orderType: string): StrategyOrderType {
+    switch (orderType?.toUpperCase()) {
+      case 'STOP':
+      case 'STOP_MARKET':
+        return 'stop-loss'
+      case 'TAKE_PROFIT':
+      case 'TAKE_PROFIT_MARKET':
+        return 'take-profit'
+      case 'TRAILING_STOP_MARKET':
+        return 'trailing-stop'
+      default:
+        return 'trigger'
+    }
+  }
+
+  private mapBinanceAlgoOrderStatus(status: string): StrategyOrderStatus {
+    switch (status?.toUpperCase()) {
+      case 'NEW':
+        return 'live'
+      case 'TRIGGERED':
+      case 'FILLED':
+        return 'effective'
+      case 'CANCELLED':
+      case 'CANCELED':
+        return 'canceled'
+      case 'REJECTED':
+      case 'EXPIRED':
+        return 'failed'
+      default:
+        return 'live'
+    }
   }
 
   private mapOrderType(orderType: string) {

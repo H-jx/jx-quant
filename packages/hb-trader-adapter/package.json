@@ -23,6 +23,8 @@
     "test": "vitest run",
     "example:public": "tsx example/public.ts",
     "example:trader": "tsx example/trader.ts",
+    "example:wsOrder": "tsx example/wsOrder.ts",
+    "example:wsUserData": "tsx example/wsUserData.ts",
     "example": "npm run example:public && npm run example:trader"
   },
   "dependencies": {

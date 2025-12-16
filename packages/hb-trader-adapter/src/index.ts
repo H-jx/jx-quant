@@ -29,8 +29,22 @@ export type {
   StrategyOrder,
   StrategyOrderParams,
   StrategyOrderType,
+  StrategyOrderStatus,
   StrategyTriggerPriceType,
   StrategyAttachedOrder,
+
+  // WebSocket 用户数据
+  WsUserDataEventType,
+  WsUserDataEvent,
+  WsOrderUpdate,
+  WsStrategyOrderUpdate,
+  WsPositionUpdate,
+  WsBalanceUpdate,
+  WsAccountUpdate,
+  WsConnectionEvent,
+  WsErrorEvent,
+  WsEventHandler,
+  WsSubscribeOptions,
 
   // 批量下单
   BatchPlaceOrderResult,
@@ -56,6 +70,9 @@ export { BasePublicAdapter } from './BasePublicAdapter'
 export type { IPublicAdapter } from './BasePublicAdapter'
 export { BaseTradeAdapter } from './BaseTradeAdapter'
 export type { ITradeAdapter } from './BaseTradeAdapter'
+export { BaseWsUserDataAdapter } from './BaseWsUserDataAdapter'
+export type { IWsUserDataAdapter } from './BaseWsUserDataAdapter'
+
 // ============================================================================
 // Adapters
 // ============================================================================
@@ -63,7 +80,14 @@ export {
   OkxPublicAdapter,
   OkxTradeAdapter,
   BinancePublicAdapter,
-  BinanceTradeAdapter
+  BinanceTradeAdapter,
+  OkxWsUserDataAdapter,
+  BinanceWsUserDataAdapter
+} from './adapters'
+
+export type {
+  OkxWsUserDataAdapterInit,
+  BinanceWsUserDataAdapterInit
 } from './adapters'
 
 // ============================================================================

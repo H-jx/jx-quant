@@ -2,7 +2,7 @@
 // Result 模式 - Go/Rust 风格的错误处理
 // ============================================================================
 
-type ResultSuccess<T> = { ok: true; data: T; }
+type ResultSuccess<T> = { ok: true; data: T; error?: any }
 type ResultFailure<E> = { ok: false; error: E }
 
 export type Result<T, E = ErrorInfo> = ResultSuccess<T> | ResultFailure<E>
@@ -307,4 +307,305 @@ export interface ValidationResult {
   valid: boolean
   /** 错误信息 (校验失败时) */
   error?: ErrorInfo
+}
+
+// ============================================================================
+// 策略订单 (Algo Order) 相关类型
+// ============================================================================
+
+/**
+ * 策略订单类型
+ * - stop-loss: 止损
+ * - take-profit: 止盈
+ * - trailing-stop: 移动止盈止损
+ * - trigger: 计划委托/条件单
+ */
+export type StrategyOrderType =
+  | 'stop-loss'        // 止损 (OKX: conditional, Binance: STOP/STOP_MARKET)
+  | 'take-profit'      // 止盈 (OKX: conditional, Binance: TAKE_PROFIT/TAKE_PROFIT_MARKET)
+  | 'trigger'          // 计划委托 (OKX: trigger, Binance: CONDITIONAL)
+  | 'trailing-stop'    // 移动止盈止损 (OKX: move_order_stop, Binance: TRAILING_STOP_MARKET)
+
+/**
+ * 触发价格类型
+ * - last: 最新价格
+ * - mark: 标记价格
+ * - index: 指数价格
+ */
+export type StrategyTriggerPriceType = 'last' | 'mark' | 'index'
+
+/**
+ * 策略订单附带的止盈止损
+ */
+export interface StrategyAttachedOrder {
+  /** 止盈触发价 */
+  tpTriggerPrice?: string | number
+  /** 止盈委托价 (-1 表示市价) */
+  tpOrderPrice?: string | number
+  /** 止盈触发价类型 */
+  tpTriggerPriceType?: StrategyTriggerPriceType
+  /** 止损触发价 */
+  slTriggerPrice?: string | number
+  /** 止损委托价 (-1 表示市价) */
+  slOrderPrice?: string | number
+  /** 止损触发价类型 */
+  slTriggerPriceType?: StrategyTriggerPriceType
+}
+
+/**
+ * 策略订单参数 (统一格式)
+ */
+export interface StrategyOrderParams<TQuantity = string | number, TPrice = string | number> {
+  /** 交易对 (统一格式: BTC-USDT) */
+  symbol: string
+  /** 交易类型 */
+  tradeType: TradeType
+  /** 交易方向 */
+  side: OrderSide
+  /** 策略订单类型 */
+  strategyType: StrategyOrderType
+  /** 下单数量 */
+  quantity: TQuantity
+  /** 持仓方向 (合约必填) */
+  positionSide?: PositionSide
+  /** 触发价格 */
+  triggerPrice: TPrice
+  /** 触发价类型，默认 last */
+  triggerPriceType?: StrategyTriggerPriceType
+  /** 委托价格 (限价单必填，-1 表示市价) */
+  orderPrice?: TPrice
+  /** 是否只减仓 */
+  reduceOnly?: boolean
+  /** 客户端策略订单ID */
+  clientAlgoId?: string
+  /** 附带止盈止损 (用于计划委托) */
+  attachedOrders?: StrategyAttachedOrder[]
+  // ====== 移动止盈止损专用 ======
+  /** 回调幅度比例 (如 0.05 代表 5%) */
+  callbackRatio?: number
+  /** 回调幅度价距 */
+  callbackSpread?: TPrice
+  /** 激活价格 (移动止盈止损) */
+  activationPrice?: TPrice
+}
+
+/**
+ * 策略订单信息
+ */
+export interface StrategyOrder {
+  /** 策略订单ID */
+  algoId: string
+  /** 客户端策略订单ID */
+  clientAlgoId?: string
+  /** 交易对 */
+  symbol: string
+  /** 交易类型 */
+  tradeType: TradeType
+  /** 交易方向 */
+  side: OrderSide
+  /** 持仓方向 */
+  positionSide?: PositionSide
+  /** 策略订单类型 */
+  strategyType: StrategyOrderType
+  /** 策略订单状态 */
+  status: StrategyOrderStatus
+  /** 触发价格 */
+  triggerPrice: string
+  /** 触发价类型 */
+  triggerPriceType?: StrategyTriggerPriceType
+  /** 委托价格 */
+  orderPrice?: string
+  /** 下单数量 */
+  quantity: string
+  /** 止盈触发价 */
+  tpTriggerPrice?: string
+  /** 止盈委托价 */
+  tpOrderPrice?: string
+  /** 止损触发价 */
+  slTriggerPrice?: string
+  /** 止损委托价 */
+  slOrderPrice?: string
+  /** 创建时间 */
+  createTime?: number
+  /** 更新时间 */
+  updateTime?: number
+  /** 触发时间 */
+  triggerTime?: number
+  /** 原始数据 */
+  raw?: unknown
+}
+
+/**
+ * 策略订单状态
+ * - live: 待生效
+ * - effective: 已生效/已触发
+ * - canceled: 已撤销
+ * - failed: 委托失败
+ * - partially_effective: 部分生效
+ */
+export type StrategyOrderStatus =
+  | 'live'
+  | 'effective'
+  | 'canceled'
+  | 'failed'
+  | 'partially_effective'
+
+// ============================================================================
+// WebSocket 用户数据流类型
+// ============================================================================
+
+/**
+ * WebSocket 用户数据事件类型
+ */
+export type WsUserDataEventType =
+  | 'order'           // 订单更新
+  | 'position'        // 持仓更新
+  | 'balance'         // 余额更新
+  | 'strategyOrder'   // 策略订单更新
+  | 'account'         // 账户更新 (综合)
+  | 'connected'       // 连接成功
+  | 'disconnected'    // 断开连接
+  | 'error'           // 错误
+
+/**
+ * WebSocket 订单更新事件
+ */
+export interface WsOrderUpdate {
+  eventType: 'order'
+  symbol: string
+  tradeType: TradeType
+  orderId: string
+  clientOrderId?: string
+  side: OrderSide
+  positionSide?: PositionSide
+  orderType: OrderType
+  status: OrderStatus
+  price: string
+  quantity: string
+  filledQuantity: string
+  avgPrice?: string
+  fee?: string
+  feeAsset?: string
+  reduceOnly?: boolean
+  updateTime: number
+  raw: unknown
+}
+
+/**
+ * WebSocket 策略订单更新事件
+ */
+export interface WsStrategyOrderUpdate {
+  eventType: 'strategyOrder'
+  symbol: string
+  tradeType: TradeType
+  algoId: string
+  clientAlgoId?: string
+  side: OrderSide
+  positionSide?: PositionSide
+  strategyType: StrategyOrderType
+  status: StrategyOrderStatus
+  triggerPrice: string
+  orderPrice?: string
+  quantity: string
+  triggerTime?: number
+  updateTime: number
+  raw: unknown
+}
+
+/**
+ * WebSocket 持仓更新事件
+ */
+export interface WsPositionUpdate {
+  eventType: 'position'
+  symbol: string
+  tradeType: TradeType
+  positionSide: PositionSide
+  quantity: string
+  entryPrice: string
+  unrealizedPnl: string
+  leverage?: string
+  marginType?: 'cross' | 'isolated'
+  liquidationPrice?: string
+  updateTime: number
+  raw: unknown
+}
+
+/**
+ * WebSocket 余额更新事件
+ */
+export interface WsBalanceUpdate {
+  eventType: 'balance'
+  asset: string
+  tradeType: TradeType
+  available: string
+  total?: string
+  frozen?: string
+  unrealizedPnl?: string
+  updateTime: number
+  raw: unknown
+}
+
+/**
+ * WebSocket 账户更新事件 (综合，包含余额和持仓)
+ */
+export interface WsAccountUpdate {
+  eventType: 'account'
+  tradeType: TradeType
+  balances: Omit<WsBalanceUpdate, 'eventType'>[]
+  positions: Omit<WsPositionUpdate, 'eventType'>[]
+  updateTime: number
+  raw: unknown
+}
+
+/**
+ * WebSocket 连接事件
+ */
+export interface WsConnectionEvent {
+  eventType: 'connected' | 'disconnected'
+  tradeType?: TradeType
+  timestamp: number
+  reason?: string
+}
+
+/**
+ * WebSocket 错误事件
+ */
+export interface WsErrorEvent {
+  eventType: 'error'
+  code: string
+  message: string
+  tradeType?: TradeType
+  timestamp: number
+  raw?: unknown
+}
+
+/**
+ * 所有 WebSocket 用户数据事件的联合类型
+ */
+export type WsUserDataEvent =
+  | WsOrderUpdate
+  | WsStrategyOrderUpdate
+  | WsPositionUpdate
+  | WsBalanceUpdate
+  | WsAccountUpdate
+  | WsConnectionEvent
+  | WsErrorEvent
+
+/**
+ * WebSocket 事件处理器
+ */
+export type WsEventHandler<T = WsUserDataEvent> = (event: T) => void
+
+/**
+ * WebSocket 订阅选项
+ */
+export interface WsSubscribeOptions {
+  /** 交易类型 */
+  tradeType: TradeType
+  /** 是否自动重连 */
+  autoReconnect?: boolean
+  /** 重连间隔 (ms) */
+  reconnectInterval?: number
+  /** 最大重连次数 */
+  maxReconnectAttempts?: number
 }
