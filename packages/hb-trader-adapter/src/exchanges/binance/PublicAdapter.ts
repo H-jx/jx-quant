@@ -19,21 +19,21 @@ import type {
   Ticker,
   OrderBook,
   AdapterOptions
-} from '../types'
+} from '../../core/types'
 import {
   Ok,
   Err,
-} from '../utils'
-import { SymbolStatus } from '../types'
-import { BasePublicAdapter } from '../BasePublicAdapter'
-import {
-  unifiedToBinance,
-  binanceToUnified,
   getDecimalPlaces,
   wrapAsync,
   createProxyAgent
-} from '../utils'
-import { ErrorCodes } from '../errorCodes'
+} from '../../core/utils'
+import { SymbolStatus } from '../../core/types'
+import { BasePublicAdapter } from '../../core/BasePublicAdapter'
+import {
+  unifiedToBinance,
+  binanceToUnified,
+} from './utils'
+import { ErrorCodes } from '../../core/errorCodes'
 
 // Binance API response types
 interface BinancePriceResponse {

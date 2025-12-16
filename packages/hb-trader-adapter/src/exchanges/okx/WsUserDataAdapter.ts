@@ -1,5 +1,5 @@
 import { WebsocketClient } from 'okx-api'
-import { BaseWsUserDataAdapter } from '../BaseWsUserDataAdapter'
+import { BaseWsUserDataAdapter } from '../../core/BaseWsUserDataAdapter'
 import type {
   Exchange,
   TradeType,
@@ -16,8 +16,8 @@ import type {
   OrderType,
   StrategyOrderType,
   StrategyOrderStatus,
-} from '../types'
-import { okxToUnified } from '../utils'
+} from '../../core/types'
+import { okxToUnified } from './utils'
 
 // ============================================================================
 // OKX WebSocket 响应类型

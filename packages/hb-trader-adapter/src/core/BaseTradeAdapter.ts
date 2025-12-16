@@ -15,9 +15,10 @@ import type {
   Exchange,
   StrategyOrderParams,
   StrategyOrder,
+  ErrorInfo,
 } from './types'
-import { Ok, Err } from './utils'
-import { formatPrice, formatQuantity, generateClientOrderId } from './utils'
+import { Ok, Err, wrapAsync } from './utils'
+import { formatPrice, formatQuantity } from './utils'
 import { ErrorCodes } from './errorCodes'
 import { IPublicAdapter } from './BasePublicAdapter'
 
@@ -155,6 +156,36 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
   get exchange(): Exchange {
     return this.publicAdapter.exchange
   }
+
+  /**
+   * 通用请求包装器
+   * @param requestFn 实际的请求函数
+   * @param errorExtractor 交易所特定的错误提取函数 (返回 null 表示无错误)
+   * @param defaultErrorCode 默认错误码
+   */
+  protected async safeRequest<T>(
+    requestFn: () => Promise<T>,
+    errorExtractor: (data: T) => ErrorInfo | null,
+    defaultErrorCode: string
+  ): Promise<Result<T>> {
+    // 1. 捕获网络/SDK 异常
+    const result = await wrapAsync(requestFn, defaultErrorCode);
+    if (!result.ok) return result;
+
+    // 2. 检查业务逻辑错误 (例如 code != 0)
+    const bizError = errorExtractor(result.data);
+    if (bizError) {
+      return Err(bizError);
+    }
+
+    return result;
+  }
+
+  /**
+   * 生成客户端订单ID
+   * 子类必须实现此方法以实现特定的ID生成逻辑
+   */
+  protected abstract generateClientOrderId(tradeType: TradeType): string
 
   // ============================================================================
   // 抽象方法 - 子类必须实现
@@ -422,7 +453,7 @@ export abstract class BaseTradeAdapter implements ITradeAdapter {
 
     // 生成客户端订单ID
     if (!formatted.clientOrderId) {
-      formatted.clientOrderId = generateClientOrderId(this.exchange, params.tradeType)
+      formatted.clientOrderId = this.generateClientOrderId(params.tradeType)
     }
 
     return formatted

@@ -6,13 +6,15 @@
 import { 
   OkxWsUserDataAdapter, 
   BinanceWsUserDataAdapter,
-  type WsUserDataEvent,
-  type WsOrderUpdate,
-  type WsPositionUpdate,
-  type WsBalanceUpdate,
-  type WsStrategyOrderUpdate,
-  type TradeType
 } from '../src'
+import type {
+  WsUserDataEvent,
+  WsOrderUpdate,
+  WsPositionUpdate,
+  WsBalanceUpdate,
+  WsStrategyOrderUpdate,
+  TradeType
+} from '../src/core/types'
 import { createLogger } from './logger'
 import { env } from './helpers'
 const logger = createLogger('StrategyOrderExample')

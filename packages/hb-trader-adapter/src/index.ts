@@ -56,39 +56,34 @@ export type {
   OrderBook,
 
   // API 认证
-  ApiCredentials,
   AdapterOptions,
-} from './types'
+} from './core/types'
 
 // Result 工具函数
-export { Ok, Err } from './utils'
+export { Ok, Err } from './core/utils'
 
 // ============================================================================
 // Base Classes
 // ============================================================================
-export { BasePublicAdapter } from './BasePublicAdapter'
-export type { IPublicAdapter } from './BasePublicAdapter'
-export { BaseTradeAdapter } from './BaseTradeAdapter'
-export type { ITradeAdapter } from './BaseTradeAdapter'
-export { BaseWsUserDataAdapter } from './BaseWsUserDataAdapter'
-export type { IWsUserDataAdapter } from './BaseWsUserDataAdapter'
+export { BasePublicAdapter } from './core/BasePublicAdapter'
+export type { IPublicAdapter } from './core/BasePublicAdapter'
+export { BaseTradeAdapter } from './core/BaseTradeAdapter'
+export type { ITradeAdapter } from './core/BaseTradeAdapter'
+export { BaseWsUserDataAdapter } from './core/BaseWsUserDataAdapter'
+export type { IWsUserDataAdapter } from './core/BaseWsUserDataAdapter'
 
 // ============================================================================
 // Adapters
 // ============================================================================
-export {
-  OkxPublicAdapter,
-  OkxTradeAdapter,
-  BinancePublicAdapter,
-  BinanceTradeAdapter,
-  OkxWsUserDataAdapter,
-  BinanceWsUserDataAdapter
-} from './adapters'
+export { OkxPublicAdapter } from './exchanges/okx/PublicAdapter'
+export { OkxTradeAdapter } from './exchanges/okx/TradeAdapter'
+export { OkxWsUserDataAdapter } from './exchanges/okx/WsUserDataAdapter'
+export type { OkxWsUserDataAdapterInit } from './exchanges/okx/WsUserDataAdapter'
 
-export type {
-  OkxWsUserDataAdapterInit,
-  BinanceWsUserDataAdapterInit
-} from './adapters'
+export { BinancePublicAdapter } from './exchanges/binance/PublicAdapter'
+export { BinanceTradeAdapter } from './exchanges/binance/TradeAdapter'
+export { BinanceWsUserDataAdapter } from './exchanges/binance/WsUserDataAdapter'
+export type { BinanceWsUserDataAdapterInit } from './exchanges/binance/WsUserDataAdapter'
 
 // ============================================================================
 // Utils
@@ -102,35 +97,9 @@ export {
   formatQuantity,
 
   // Symbol 转换
-  parseUnifiedSymbol,
-  createUnifiedSymbol,
-  unifiedToOkx,
-  unifiedToBinance,
-  okxToUnified,
-  binanceToUnified,
-
-  // 交易所客户端转换
-  getOkxInstType,
-  getOkxTdMode,
-
-  // 币本位合约工具
-  getContractValue,
-  usdtToContracts,
-  coinToContracts,
-  contractsToCoin,
 
   // 错误处理
   wrapAsync,
-  extractOkxError,
-  extractBinanceError,
-
-  // 时间工具
-  generateClientOrderId,
-
-  // 类型守卫
-  isValidTradeType,
-  isValidExchange,
-
   // 代理工具
   createProxyAgent
-} from './utils'
+} from './core/utils'

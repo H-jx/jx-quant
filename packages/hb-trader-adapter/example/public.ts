@@ -1,4 +1,4 @@
-import type { Result, SymbolInfo, Ticker, OrderBook, TradeType, Exchange } from '../src/types'
+import type { Result, SymbolInfo, Ticker, OrderBook, TradeType, Exchange } from '../src/core/types'
 import { bootstrapAdapters, ensureSymbolLoaded, log, runWithErrorHandling } from './helpers'
 import { formatList } from './logger'
 

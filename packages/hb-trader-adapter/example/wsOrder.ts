@@ -4,7 +4,7 @@
  * 运行方式: npx esno example/strategyOrder.ts
  */
 import { OkxTradeAdapter, BinanceTradeAdapter } from '../src'
-import type { StrategyOrderParams, StrategyOrder, TradeType } from '../src'
+import type { StrategyOrderParams, StrategyOrder, TradeType } from '../src/core/types'
 import { createLogger } from './logger'
 import { env } from './helpers'
 const logger = createLogger('')

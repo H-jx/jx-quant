@@ -31,20 +31,17 @@ import type {
   StrategyOrder,
   StrategyOrderStatus,
   StrategyOrderType,
-  StrategyTriggerPriceType,
-} from '../types'
-import { Ok, Err } from '../utils'
-import { BaseTradeAdapter } from '../BaseTradeAdapter'
-import { ErrorCodes } from '../errorCodes'
+} from '../../core/types'
+import { Ok, Err, wrapAsync, createProxyAgent, coinToContracts } from '../../core/utils'
+import { BaseTradeAdapter } from '../../core/BaseTradeAdapter'
+import { ErrorCodes } from '../../core/errorCodes'
 import {
   unifiedToBinance,
   parseBinanceSymbol,
-  wrapAsync,
-  coinToContracts,
-  createProxyAgent
-} from '../utils'
-import { BinancePublicAdapter } from './BinancePublicAdapter'
-import { IPublicAdapter } from '../BasePublicAdapter'
+  generateBinanceClientOrderId
+} from './utils'
+import { BinancePublicAdapter } from './PublicAdapter'
+import { IPublicAdapter } from '../../core/BasePublicAdapter'
 
 // Binance API response types
 type numberInString = string | number
@@ -191,6 +188,10 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
       BinanceTradeAdapter.publicAdapter = publicAdapter || new BinancePublicAdapter({ httpsProxy, socksProxy })
     }
     this.publicAdapter = BinanceTradeAdapter.publicAdapter
+  }
+
+  protected generateClientOrderId(tradeType: TradeType): string {
+    return generateBinanceClientOrderId(tradeType)
   }
 
   // ============================================================================
@@ -1098,7 +1099,7 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
    * 撤销策略订单
    */
   async cancelStrategyOrder(
-    symbol: string,
+    _symbol: string,
     algoId: string,
     tradeType: TradeType
   ): Promise<Result<StrategyOrder>> {

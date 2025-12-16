@@ -29,22 +29,18 @@ import type {
   StrategyOrderStatus,
   StrategyOrderType,
   StrategyTriggerPriceType,
-} from '../types'
-import { Ok, Err } from '../utils'
-import { BaseTradeAdapter } from '../BaseTradeAdapter'
-import { ErrorCodes } from '../errorCodes'
+} from '../../core/types'
+import { Ok, Err, wrapAsync, createProxyAgent } from '../../core/utils'
+import { BaseTradeAdapter } from '../../core/BaseTradeAdapter'
+import { ErrorCodes } from '../../core/errorCodes'
 import {
   unifiedToOkx,
   getOkxInstType,
   getOkxTdMode,
-  wrapAsync,
-  createProxyAgent,
-  formatPrice,
-  formatQuantity,
-  generateClientOrderId,
-} from '../utils'
-import { OkxPublicAdapter } from './OkxPublicAdapter'
-import { IPublicAdapter } from '../BasePublicAdapter'
+  generateOkxClientOrderId
+} from './utils'
+import { OkxPublicAdapter } from './PublicAdapter'
+import { IPublicAdapter } from '../../core/BasePublicAdapter'
 
 // OKX API response types
 interface OkxBalanceResponse {
@@ -116,6 +112,10 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
       OkxTradeAdapter.publicAdapter = publicAdapter || new OkxPublicAdapter({ httpsProxy, socksProxy })
     }
     this.publicAdapter = OkxTradeAdapter.publicAdapter
+  }
+
+  protected generateClientOrderId(_tradeType: TradeType): string {
+    return generateOkxClientOrderId()
   }
   // ============================================================================
   // 批量下单限制

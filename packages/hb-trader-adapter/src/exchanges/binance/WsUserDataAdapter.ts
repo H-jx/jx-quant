@@ -1,5 +1,5 @@
 import { WebsocketClient, WsUserDataEvents, WsMessageFuturesUserDataAccountUpdateFormatted, WsMessageFuturesUserDataTradeUpdateEventFormatted } from 'binance'
-import { BaseWsUserDataAdapter } from '../BaseWsUserDataAdapter'
+import { BaseWsUserDataAdapter } from '../../core/BaseWsUserDataAdapter'
 import type {
   Exchange,
   TradeType,
@@ -13,8 +13,8 @@ import type {
   OrderSide,
   PositionSide,
   OrderType,
-} from '../types'
-import { parseBinanceSymbol } from '../utils'
+} from '../../core/types'
+import { parseBinanceSymbol } from './utils'
 
 // ============================================================================
 // 初始化参数

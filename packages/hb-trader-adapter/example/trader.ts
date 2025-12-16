@@ -9,7 +9,7 @@ import type {
   Result,
   SymbolInfo,
   TradeType
-} from '../src/types'
+} from '../src/core/types'
 import { bootstrapAdapters, ensureSymbolLoaded, env, log, runWithErrorHandling } from './helpers'
 
 const sampleSymbols: Record<TradeType, Record<Exchange, string>> = {

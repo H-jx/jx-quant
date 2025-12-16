@@ -8,19 +8,16 @@ import type {
   Ticker,
   OrderBook,
   AdapterOptions
-} from '../types'
-import { SymbolStatus } from '../types'
-import { Ok, Err } from '../utils'
-import { BasePublicAdapter } from '../BasePublicAdapter'
-import { ErrorCodes } from '../errorCodes'
+} from '../../core/types'
+import { SymbolStatus } from '../../core/types'
+import { Ok, Err, getDecimalPlaces, wrapAsync, createProxyAgent } from '../../core/utils'
+import { BasePublicAdapter } from '../../core/BasePublicAdapter'
+import { ErrorCodes } from '../../core/errorCodes'
 import {
   unifiedToOkx,
   okxToUnified,
   getOkxInstType,
-  getDecimalPlaces,
-  wrapAsync,
-  createProxyAgent
-} from '../utils'
+} from './utils'
 
 // OKX API response types
 interface OkxInstrumentResponse {

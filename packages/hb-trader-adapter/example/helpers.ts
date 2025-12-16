@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createLogger } from './logger'
 import { BaseTradeAdapter, BasePublicAdapter, BinancePublicAdapter, BinanceTradeAdapter, OkxPublicAdapter, OkxTradeAdapter } from '../src'
-import type { TradeType, PlaceOrderParams } from '../src/types'
+import type { TradeType, PlaceOrderParams } from '../src/core/types'
 
 export const log = createLogger('')
 
