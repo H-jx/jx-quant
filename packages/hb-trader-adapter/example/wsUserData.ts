@@ -14,21 +14,21 @@ import {
   type TradeType
 } from '../src'
 import { createLogger } from './logger'
-
+import { env } from './helpers'
 const logger = createLogger('StrategyOrderExample')
 // ============================================================================
 // 配置
 // ============================================================================
 
 const OKX_CONFIG = {
-  apiKey: process.env.OKX_API_KEY || '',
-  apiSecret: process.env.OKX_API_SECRET || '',
-  passphrase: process.env.OKX_PASSPHRASE || '',
+  apiKey: env.okxApiKey || '',
+  apiSecret: env.okxApiSecret || '',
+  passphrase: env.okxPassphrase || '',
 }
 
 const BINANCE_CONFIG = {
-  apiKey: process.env.BINANCE_API_KEY || '',
-  apiSecret: process.env.BINANCE_API_SECRET || '',
+  apiKey: env.binanceApiKey || '',
+  apiSecret: env.binanceApiSecret || '',
 }
 
 // ============================================================================
