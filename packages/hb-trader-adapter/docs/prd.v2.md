@@ -26,6 +26,11 @@
    - https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/user-data-streams/Event-Order-Update
    - https://developers.binance.com/docs/zh-CN/derivatives/usds-margined-futures/account/websocket-api
 
+https://github.com/tiagosiebler/binance/blob/master/examples/WebSockets/ws-unsubscribe.ts
+https://github.com/tiagosiebler/binance/blob/master/examples/WebSockets/ws-userdata-wsapi.ts
+https://github.com/tiagosiebler/binance/blob/master/examples/WebSockets/ws-userdata-listenkey.ts
+https://github.com/tiagosiebler/binance/blob/master/examples/WebSockets/ws-userdata-connection-safety.ts
+https://github.com/tiagosiebler/binance/blob/master/examples/WebSockets/ws-userdata-README.MD
 ## 技术设计
 1. **REST 策略下单**
    - 复用 `BaseTradeAdapter`，新增 OKX 策略下单（algo order）接口。

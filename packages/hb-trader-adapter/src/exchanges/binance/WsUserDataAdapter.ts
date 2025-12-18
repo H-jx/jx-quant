@@ -15,6 +15,7 @@ import type {
   OrderType,
 } from '../../core/types'
 import { parseBinanceSymbol } from './utils'
+import { createProxyAgent } from '../../core/utils'
 
 // ============================================================================
 // 初始化参数
@@ -24,7 +25,9 @@ export interface BinanceWsUserDataAdapterInit {
   apiKey: string
   apiSecret: string
   /** 是否使用测试网 */
-  testnet?: boolean
+  simulated?: boolean
+  httpsProxy?: string
+  socksProxy?: string
 }
 
 // ============================================================================
@@ -42,12 +45,21 @@ export class BinanceWsUserDataAdapter extends BaseWsUserDataAdapter {
 
   constructor(config: BinanceWsUserDataAdapterInit) {
     super()
-    this.testnet = config.testnet || false
+    this.testnet = config.simulated || false
 
     this.wsClient = new WebsocketClient({
       api_key: config.apiKey,
       api_secret: config.apiSecret,
       beautify: true, // 使用格式化的响应
+      wsOptions: {
+        agent: createProxyAgent({ socksProxy: config.socksProxy })
+      },
+      // Ensure REST listenKey/keep-alive calls use the same proxy agent
+      requestOptions: (() => {
+        const agent = createProxyAgent({ socksProxy: config.socksProxy, httpsProxy: config.httpsProxy })
+        if (!agent) return undefined
+        return { httpAgent: agent, httpsAgent: agent }
+      })(),
     })
 
     this.setupEventHandlers()

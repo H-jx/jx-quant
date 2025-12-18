@@ -18,6 +18,7 @@ import type {
   StrategyOrderStatus,
 } from '../../core/types'
 import { okxToUnified } from './utils'
+import { createProxyAgent } from '../../core/utils'
 
 // ============================================================================
 // OKX WebSocket 响应类型
@@ -95,6 +96,8 @@ export interface OkxWsUserDataAdapterInit {
   passphrase: string
   /** 是否使用模拟盘 */
   simulated?: boolean
+  httpsProxy?: string
+  socksProxy?: string
 }
 
 // ============================================================================
@@ -119,7 +122,11 @@ export class OkxWsUserDataAdapter extends BaseWsUserDataAdapter {
         apiKey: config.apiKey,
         apiSecret: config.apiSecret,
         apiPass: config.passphrase
-      }]
+      }],
+      demoTrading: this.simulated,
+      wsOptions: {
+        agent: createProxyAgent({ socksProxy: config.socksProxy })
+      }
     })
 
     this.setupEventHandlers()

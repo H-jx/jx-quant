@@ -26,11 +26,14 @@ const OKX_CONFIG = {
   apiKey: env.okxApiKey || '',
   apiSecret: env.okxApiSecret || '',
   passphrase: env.okxPassphrase || '',
+  socksProxy: 'socks5://127.0.0.1:7890',
+  simulated: true
 }
 
 const BINANCE_CONFIG = {
   apiKey: env.binanceApiKey || '',
   apiSecret: env.binanceApiSecret || '',
+  socksProxy: 'socks5://127.0.0.1:7890'
 }
 
 // ============================================================================
@@ -195,7 +198,7 @@ async function testBinanceWsUserData() {
 async function main() {
 
   
-  const exchange = process.argv[2] || 'okx'
+  const exchange = process.argv[2] || 'binance'
   
   try {
     if (exchange === 'okx') {
