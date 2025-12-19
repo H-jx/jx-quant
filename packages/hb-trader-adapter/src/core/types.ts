@@ -264,6 +264,7 @@ export interface AdapterOptions {
   httpsProxy?: string
   /** SOCKS 代理 URL (例如: socks://127.0.0.1:7890) */
   socksProxy?: string
+  demonet?: boolean // 使用仿真交易模式
 }
 
 export type TradeAdapterInit<TPublicAdapter> = ApiCredentials & AdapterOptions & {

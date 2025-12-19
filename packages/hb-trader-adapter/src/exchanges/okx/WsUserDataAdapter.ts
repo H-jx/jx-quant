@@ -95,7 +95,7 @@ export interface OkxWsUserDataAdapterInit {
   apiSecret: string
   passphrase: string
   /** 是否使用模拟盘 */
-  simulated?: boolean
+  demonet?: boolean
   httpsProxy?: string
   socksProxy?: string
 }
@@ -111,11 +111,11 @@ export class OkxWsUserDataAdapter extends BaseWsUserDataAdapter {
   private connectedTradeTypes: Set<TradeType> = new Set()
   private subscribeOptions: Map<TradeType, WsSubscribeOptions> = new Map()
   /** 是否使用模拟盘 */
-  readonly simulated: boolean
+  readonly demonet: boolean
 
   constructor(config: OkxWsUserDataAdapterInit) {
     super()
-    this.simulated = config.simulated || false
+    this.demonet = config.demonet || false
 
     this.wsClient = new WebsocketClient({
       accounts: [{
@@ -123,7 +123,7 @@ export class OkxWsUserDataAdapter extends BaseWsUserDataAdapter {
         apiSecret: config.apiSecret,
         apiPass: config.passphrase
       }],
-      demoTrading: this.simulated,
+      demoTrading: this.demonet,
       wsOptions: {
         agent: createProxyAgent({ socksProxy: config.socksProxy })
       }

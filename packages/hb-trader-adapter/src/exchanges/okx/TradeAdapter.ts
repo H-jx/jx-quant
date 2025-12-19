@@ -73,7 +73,6 @@ interface OkxOrderResponse {
 type OkxOrderDetailResponse = OrderDetails
 
 type OkxTradeAdapterParams = TradeAdapterInit<OkxPublicAdapter> & {
-  demoTrading?: boolean
 }
 
 
@@ -89,14 +88,14 @@ export class OkxTradeAdapter extends BaseTradeAdapter {
 
   protected client: RestClient
 
-  constructor({ apiKey, apiSecret, passphrase, demoTrading, httpsProxy, socksProxy, publicAdapter }: OkxTradeAdapterParams) {
+  constructor({ apiKey, apiSecret, passphrase, demonet, httpsProxy, socksProxy, publicAdapter }: OkxTradeAdapterParams) {
     super()
 
     const clientConfig: RestClientOptions = {
       apiKey: apiKey,
       apiSecret: apiSecret,
       apiPass: passphrase,
-      demoTrading
+      demoTrading: demonet || false
     }
     const requestOptions: AxiosRequestConfig = {}
 

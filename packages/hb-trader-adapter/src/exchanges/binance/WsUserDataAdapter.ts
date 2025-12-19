@@ -25,7 +25,7 @@ export interface BinanceWsUserDataAdapterInit {
   apiKey: string
   apiSecret: string
   /** 是否使用测试网 */
-  simulated?: boolean
+  demonet?: boolean
   httpsProxy?: string
   socksProxy?: string
 }
@@ -41,16 +41,17 @@ export class BinanceWsUserDataAdapter extends BaseWsUserDataAdapter {
   private connectedTradeTypes: Set<TradeType> = new Set()
   private subscribeOptions: Map<TradeType, WsSubscribeOptions> = new Map()
   /** 是否使用测试网 */
-  readonly testnet: boolean
+  readonly demonet: boolean
 
   constructor(config: BinanceWsUserDataAdapterInit) {
     super()
-    this.testnet = config.simulated || false
+    this.demonet = config.demonet || false
 
     this.wsClient = new WebsocketClient({
       api_key: config.apiKey,
       api_secret: config.apiSecret,
       beautify: true, // 使用格式化的响应
+      testnet: this.demonet,
       wsOptions: {
         agent: createProxyAgent({ socksProxy: config.socksProxy })
       },

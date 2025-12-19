@@ -151,7 +151,9 @@ export interface OrderResponseFull {
   fills: OrderFill[];
 }
 
-type BinanceTradeAdapterParams = TradeAdapterInit<BinancePublicAdapter>
+type BinanceTradeAdapterParams = TradeAdapterInit<BinancePublicAdapter> & {
+
+}
 /**
  * Binance 交易 API 适配器
  * 使用组合模式，公共 API 委托给 BinancePublicAdapter
@@ -165,11 +167,12 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
   protected futuresClient: USDMClient
   protected deliveryClient: CoinMClient
 
-  constructor({ apiKey, apiSecret, httpsProxy, socksProxy, publicAdapter }: BinanceTradeAdapterParams) {
+  constructor({ apiKey, apiSecret, httpsProxy, socksProxy, publicAdapter, demonet }: BinanceTradeAdapterParams) {
     super()
     const config: RestClientOptions = {
       api_key: apiKey,
-      api_secret: apiSecret
+      api_secret: apiSecret,
+      testnet: demonet || false
     }
     const requestOptions: AxiosRequestConfig = {}
 
@@ -1035,8 +1038,9 @@ export class BinanceTradeAdapter extends BaseTradeAdapter {
       algoRequest.price = String(params.orderPrice)
     }
 
-    // 只减仓
-    if (params.reduceOnly) {
+    // 只减仓: Binance 在双开(hedge)模式下不接受 reduceOnly 参数
+    // 只在未指定 positionSide 的情况下传递 reduceOnly（即 one-way 模式）
+    if (params.reduceOnly && !params.positionSide) {
       algoRequest.reduceOnly = 'true'
     }
 
