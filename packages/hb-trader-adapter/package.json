@@ -1,5 +1,5 @@
 {
-  "name": "@jx-quant/etrader",
+  "name": "hb-trader-adapter",
   "version": "0.1.0",
   "description": "多平台交易适配器 - 抹平 OKX/Binance 等交易所的 API 差异，提供统一的交易接口",
   "type": "module",

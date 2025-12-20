@@ -23,100 +23,265 @@ npm install @jx-quant/etrader
 
 ## 🚀 使用指南
 
-### 1. 查询公开市场数据 (无需认证)
+以下示例展示一个完整的交易流程：查询交易对信息 → 下单 → 监听订单状态。
 
-您可以轻松创建一个 `PublicAdapter` 来获取任何支持的交易所的公开数据，例如交易对信息和最新价格。
+### 完整交易流程示例
 
 ```typescript
-import { createPublicAdapter } from '@jx-quant/etrader';
+import {
+  BinanceTradeAdapter,
+  BinanceWsUserDataAdapter,
+  type WsOrderUpdate,
+  type PlaceOrderParams,
+} from '@jx-quant/etrader'
 
-async function main() {
-  // 1. 创建 Binance 公共适配器
-  const publicAdapter = createPublicAdapter('binance');
+// ============================================================================
+// 1. 初始化适配器
+// ============================================================================
 
-  // 2. 获取 'BTC-USDT' U本位永续合约的交易对信息
-  const symbolResult = await publicAdapter.getSymbolInfo('BTC-USDT', 'futures');
+const tradeAdapter = new BinanceTradeAdapter({
+  apiKey: 'your_api_key',
+  apiSecret: 'your_api_secret',
+  demonet: true, // 使用测试网进行开发调试
+})
 
-  if (symbolResult.ok) {
-    const symbolInfo = symbolResult.data;
-    console.log('--- BTC-USDT Futures Symbol Info ---');
-    console.log(`最小下单量 (minQty): ${symbolInfo.minQty}`);
-    console.log(`价格精度 (tickSize): ${symbolInfo.tickSize}`);
-    console.log(`数量精度 (stepSize): ${symbolInfo.stepSize}`);
-  } else {
-    console.error('获取交易对信息失败:', symbolResult.error);
-    return;
+const wsAdapter = new BinanceWsUserDataAdapter({
+  apiKey: 'your_api_key',
+  apiSecret: 'your_api_secret',
+  demonet: true,
+})
+
+// ============================================================================
+// 2. 查询交易对信息
+// ============================================================================
+
+async function querySymbolInfo() {
+  // 初始化适配器（加载交易对信息）
+  const initResult = await tradeAdapter.init()
+  if (!initResult.ok) {
+    console.error('初始化失败:', initResult.error.message)
+    return null
   }
 
-  // 3. 获取 'ETH-USDT' U本位永续合约的当前市场价
-  const priceResult = await publicAdapter.getPrice('ETH-USDT', 'futures');
-
-  if (priceResult.ok) {
-    console.log(`\n--- ETH-USDT Futures Price ---`);
-    console.log(`当前价格: ${priceResult.data}`);
-  } else {
-    console.error('获取价格失败:', priceResult.error);
+  // 查询 BTC-USDT 永续合约信息
+  const symbolResult = await tradeAdapter.getSymbolInfo('BTC-USDT', 'futures')
+  if (!symbolResult.ok) {
+    console.error('获取交易对信息失败:', symbolResult.error.message)
+    return null
   }
+
+  const symbolInfo = symbolResult.data
+  console.log('交易对信息:', {
+    symbol: symbolInfo.symbol,
+    tickSize: symbolInfo.tickSize,      // 价格精度
+    stepSize: symbolInfo.stepSize,      // 数量精度
+    minQty: symbolInfo.minQty,          // 最小下单数量
+    maxLeverage: symbolInfo.maxLeverage // 最大杠杆
+  })
+
+  return symbolInfo
 }
 
-main().catch(console.error);
-```
+// ============================================================================
+// 3. 下单
+// ============================================================================
 
-### 2. 执行交易操作 (需要认证)
-
-对于交易操作，您需要提供 API 凭证来创建一个 `TradeAdapter`。`placeOrder` 方法封装了完整的安全校验流程。
-
-```typescript
-import { createTradeAdapter } from '@jx-quant/etrader';
-import type { ApiCredentials } from '@jx-quant/etrader';
-
-async function main() {
-  // 1. 设置您的 API 凭证
-  const credentials = {
-    apiKey: 'YOUR_API_KEY',
-    apiSecret: 'YOUR_API_SECRET',
-    // passphrase: 'YOUR_PASSPHRASE', // 如果是 OKX，则需要 passphrase
-  };
-
-  // 2. 创建 OKX 交易适配器
-  const tradeAdapter = createTradeAdapter('okx', credentials);
-
-  // （可选）初始化适配器，预加载所有交易对信息到缓存中，以提高后续性能
-  await tradeAdapter.init();
-
-  // 3. 获取 U本位合约账户的 USDT 余额
-  const balanceResult = await tradeAdapter.getBalance('futures');
-  if (balanceResult.ok) {
-    const usdtBalance = balanceResult.data.find(b => b.asset === 'USDT');
-    console.log('--- Futures Account Balance ---');
-    console.log(`USDT 可用余额: ${usdtBalance?.free}`);
-  } else {
-    console.error('获取余额失败:', balanceResult.error);
+async function placeOrder() {
+  // 获取当前价格
+  const priceResult = await tradeAdapter.getPrice('BTC-USDT', 'futures')
+  if (!priceResult.ok) {
+    console.error('获取价格失败:', priceResult.error.message)
+    return null
   }
 
-  // 4. 下一个限价单：买入 0.01 BTC，价格为 50000 USDT
-  console.log('\n--- Placing Order ---');
-  const orderResult = await tradeAdapter.placeOrder({
+  const currentPrice = parseFloat(priceResult.data)
+  // 限价单价格设为当前价格的 99%
+  const limitPrice = currentPrice * 0.99
+
+  // 构建下单参数
+  const orderParams: PlaceOrderParams = {
     symbol: 'BTC-USDT',
     tradeType: 'futures',
     side: 'buy',
     orderType: 'limit',
-    quantity: 0.01,
-    price: 50000,
-    positionSide: 'long', // 合约交易必填
-  });
+    quantity: 0.001,
+    price: limitPrice,
+    positionSide: 'long', // 合约必须指定仓位方向
+  }
 
-  if (orderResult.ok) {
-    console.log('✅ 下单成功!');
-    console.log(`订单 ID: ${orderResult.data.orderId}`);
-  } else {
-    console.log('❌ 下单失败:');
-    console.log(`  - 错误码: ${orderResult.error.code}`);
-    console.log(`  - 错误信息: ${orderResult.error.message}`);
+  // 下单
+  const orderResult = await tradeAdapter.placeOrder(orderParams)
+  if (!orderResult.ok) {
+    console.error('下单失败:', orderResult.error.message)
+    return null
+  }
+
+  const order = orderResult.data
+  console.log('下单成功:', {
+    orderId: order.orderId,
+    symbol: order.symbol,
+    side: order.side,
+    price: order.price,
+    quantity: order.quantity,
+    status: order.status
+  })
+
+  return order
+}
+
+// ============================================================================
+// 4. 监听订单状态
+// ============================================================================
+
+async function subscribeOrderUpdates() {
+  // 监听订单更新事件
+  wsAdapter.on('order', (event: WsOrderUpdate) => {
+    console.log('订单更新:', {
+      orderId: event.orderId,
+      symbol: event.symbol,
+      side: event.side,
+      status: event.status,
+      filledQty: event.filledQty,
+      avgPrice: event.avgPrice,
+    })
+
+    // 订单完全成交
+    if (event.status === 'filled') {
+      console.log(`订单 ${event.orderId} 已完全成交`)
+    }
+
+    // 订单被取消
+    if (event.status === 'canceled') {
+      console.log(`订单 ${event.orderId} 已取消`)
+    }
+  })
+
+  // 监听仓位更新
+  wsAdapter.on('position', (event) => {
+    console.log('仓位更新:', {
+      symbol: event.symbol,
+      positionSide: event.positionSide,
+      positionAmt: event.positionAmt,
+      unrealizedPnl: event.unrealizedPnl,
+    })
+  })
+
+  // 订阅 WebSocket
+  await wsAdapter.subscribe(
+    { tradeType: 'futures', autoReconnect: true },
+    (event) => {
+      // 可选的通用事件处理
+      console.log('收到事件:', event.eventType)
+    }
+  )
+
+  console.log('WebSocket 订阅成功')
+}
+
+// ============================================================================
+// 5. 运行完整流程
+// ============================================================================
+
+async function main() {
+  try {
+    // 订阅订单更新
+    await subscribeOrderUpdates()
+
+    // 查询交易对信息
+    const symbolInfo = await querySymbolInfo()
+    if (!symbolInfo) return
+
+    // 下单
+    const order = await placeOrder()
+    if (!order) return
+
+    // 等待订单状态更新 (通过 WebSocket 接收)
+    console.log('等待订单状态更新...')
+
+    // 查询订单状态 (可选，用于主动查询)
+    const orderStatus = await tradeAdapter.getOrder(
+      'BTC-USDT',
+      order.orderId,
+      'futures'
+    )
+    if (orderStatus.ok) {
+      console.log('订单当前状态:', orderStatus.data.status)
+    }
+
+    // 取消订单 (可选)
+    // const cancelResult = await tradeAdapter.cancelOrder(
+    //   'BTC-USDT',
+    //   order.orderId,
+    //   'futures'
+    // )
+
+  } catch (error) {
+    console.error('执行出错:', error)
   }
 }
 
-main().catch(console.error);
+// 运行
+main()
+
+// 优雅退出
+process.on('SIGINT', async () => {
+  console.log('正在关闭连接...')
+  await wsAdapter.close()
+  await tradeAdapter.destroy()
+  process.exit(0)
+})
+```
+
+### 更多示例
+
+#### 查询账户余额和持仓
+
+```typescript
+// 查询合约账户余额
+const balanceResult = await tradeAdapter.getBalance('futures')
+if (balanceResult.ok) {
+  balanceResult.data.forEach((balance) => {
+    console.log(`${balance.asset}: 可用 ${balance.free}, 冻结 ${balance.locked}`)
+  })
+}
+
+// 查询所有持仓
+const positionsResult = await tradeAdapter.getPositions(undefined, 'futures')
+if (positionsResult.ok) {
+  positionsResult.data
+    .filter((p) => parseFloat(p.positionAmt) !== 0)
+    .forEach((position) => {
+      console.log(`${position.symbol} ${position.positionSide}: ${position.positionAmt}`)
+    })
+}
+```
+
+#### 市价单
+
+```typescript
+const result = await tradeAdapter.placeOrder({
+  symbol: 'BTC-USDT',
+  tradeType: 'futures',
+  side: 'buy',
+  orderType: 'market',
+  quantity: 0.001,
+  positionSide: 'long',
+})
+```
+
+#### 止盈止损单
+
+```typescript
+const result = await tradeAdapter.placeStrategyOrder({
+  symbol: 'BTC-USDT',
+  tradeType: 'futures',
+  side: 'sell',
+  positionSide: 'long',
+  quantity: 0.001,
+  strategyType: 'stop-loss',
+  triggerPrice: 50000,
+  triggerPriceType: 'mark', // 使用标记价格触发
+})
 ```
 
 ## 🛠️ 开发者指南
