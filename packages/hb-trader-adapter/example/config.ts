@@ -28,7 +28,7 @@ export const ENABLED_EXCHANGES: Exchange[] = [
 export const ENABLED_TRADE_TYPES: TradeType[] = [
   'spot',
   'futures',
-  // 'delivery',  // 取消注释以测试交割合约
+  'delivery',  // 取消注释以测试交割合约
 ]
 
 /**
@@ -63,7 +63,7 @@ export const SAMPLE_SYMBOLS: Record<TradeType, Record<Exchange, string>> = {
   },
   delivery: {
     binance: 'BTC-USD',
-    okx: 'BTC-USD-251219',
+    okx: 'BTC-USD',
   },
 }
 
@@ -114,12 +114,12 @@ export const SINGLE_ORDER_SCENARIOS: OrderScenario[] = [
   // Binance 场景
   { exchange: 'binance', tradeType: 'spot', side: 'buy' },
   { exchange: 'binance', tradeType: 'futures', side: 'buy', positionSide: 'long' },
-  // { exchange: 'binance', tradeType: 'delivery', side: 'buy', positionSide: 'long' },
+  { exchange: 'binance', tradeType: 'delivery', side: 'buy', positionSide: 'long' },
 
   // OKX 场景
-  // { exchange: 'okx', tradeType: 'spot', side: 'buy' },
-  // { exchange: 'okx', tradeType: 'futures', side: 'buy', positionSide: 'long' },
-  // { exchange: 'okx', tradeType: 'delivery', side: 'buy', positionSide: 'long' },
+  { exchange: 'okx', tradeType: 'spot', side: 'buy' },
+  { exchange: 'okx', tradeType: 'futures', side: 'buy', positionSide: 'long' },
+  { exchange: 'okx', tradeType: 'delivery', side: 'buy', positionSide: 'long' },
 ]
 
 /**
@@ -130,12 +130,12 @@ export const BATCH_ORDER_SCENARIOS: BatchOrderScenario[] = [
   // Binance 场景
   { exchange: 'binance', tradeType: 'spot', side: 'buy', count: ORDER_CONFIG.batchOrderCount },
   { exchange: 'binance', tradeType: 'futures', side: 'buy', positionSide: 'long', count: ORDER_CONFIG.batchOrderCount },
-  // { exchange: 'binance', tradeType: 'delivery', side: 'buy', positionSide: 'long', count: ORDER_CONFIG.batchOrderCount },
+  { exchange: 'binance', tradeType: 'delivery', side: 'buy', positionSide: 'long', count: ORDER_CONFIG.batchOrderCount },
 
   // OKX 场景
   { exchange: 'okx', tradeType: 'spot', side: 'buy', count: ORDER_CONFIG.batchOrderCount },
   { exchange: 'okx', tradeType: 'futures', side: 'buy', positionSide: 'long', count: ORDER_CONFIG.batchOrderCount },
-  // { exchange: 'okx', tradeType: 'delivery', side: 'buy', positionSide: 'long', count: ORDER_CONFIG.batchOrderCount },
+  { exchange: 'okx', tradeType: 'delivery', side: 'buy', positionSide: 'long', count: ORDER_CONFIG.batchOrderCount },
 ]
 
 // ============================================================================
