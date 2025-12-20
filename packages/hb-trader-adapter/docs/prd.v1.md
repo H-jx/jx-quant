@@ -1,174 +1,331 @@
-# PRD v1: 多平台交易适配器
+# HB-Trader-Adapter Agent Documentation
 
-## 1. 项目目标
+## Project Overview
 
-开发一个多平台交易适配器，旨在抹平 OKX、Binance 等主流加密货币交易所的 API 差异。通过提供一个统一、标准化的接口，简化量化交易策略的开发和部署流程。
+**Package Name**: `hb-trader-adapter`
+**Version**: 0.1.0
+**Purpose**: A multi-exchange trading adapter that abstracts away API differences between OKX and Binance, providing unified interfaces for quantitative trading strategies.
 
-## 2. 核心特性
+## Architecture
 
-- **统一接口**: 为不同交易所的交易和查询操作提供一致的调用方式。
-- **固化流程**: 标准化下单前的校验流程（参数校验 → 余额检查 → 精度格式化）。
-- **统一数据结构**: 无论是交易对信息、订单、余额还是持仓，都返回统一的、经过清洗的数据格式。
-- **职责分离**:
-  - **公共适配器 (`PublicAdapter`)**: 无需 API Key，负责查询市场行情、交易对信息等公开数据。
-  - **交易适配器 (`TradeAdapter`)**: 需要 API Key，负责下单、撤单、查询私有账户信息（余额、持仓）等。
-- **高可扩展性**: 提供清晰的基类和接口，方便快速集成新的交易所。
-- **现代化的错误处理**: 采用 Go/Rust 风格的 `Result<T, E>` 模式，强制调用方处理成功和失败两种情况，杜绝隐藏的 `try/catch` 异常。
-
-## 3. 架构设计
-
-系统核心由 `PublicAdapter` 和 `TradeAdapter` 两大组件构成。`TradeAdapter` 内部组合（Composition）一个 `PublicAdapter` 实例来访问公共数据，实现了职责分离和资源复用。
-
-### 3.1. 适配器分类
-
-- **`BasePublicAdapter`**: 抽象基类，定义了获取公开数据（如交易对、价格）的通用逻辑和缓存策略。
-- **`BaseTradeAdapter`**: 抽象基类，封装了完整的下单生命周期，包括参数校验、余额检查、精度格式化以及订单执行。
-- **具体实现**:
-  - `OkxPublicAdapter` / `OkxTradeAdapter`
-  - `BinancePublicAdapter` / `BinanceTradeAdapter`
-
-### 3.2. Symbol 格式
-- **统一格式**: 所有内部逻辑和外部调用均采用 `BASE-QUOTE` 格式，例如 `BTC-USDT`。
-- **转换层**: 在每个交易所适配器内部，通过 `toRawSymbol` 和 `fromRawSymbol` 方法处理与交易所特定格式（如 Binance 的 `BTCUSDT` 或 OKX 的 `BTC-USDT-SWAP`）之间的转换。
-
-### 3.3. 下单流程
-
-`BaseTradeAdapter.placeOrder()` 封装了标准的下单流程，确保交易的安全性和可靠性：
-
-1.  **获取 `SymbolInfo`**: 通过 `publicAdapter` 获取交易对的精度、最小下单量等元数据（利用缓存机制）。
-2.  **参数校验 (`validateOrderParams`)**: 检查订单类型、价格、数量、交易对状态等基本参数的合法性。
-3.  **获取账户状态**: 并发获取当前余额和持仓信息。
-4.  **余额校验 (`validateBalance`)**: 根据订单类型（开/平仓、现货/合约）计算所需资金或持仓，并与可用余额进行比较。
-5.  **参数格式化 (`formatOrderParams`)**: 根据 `SymbolInfo` 中的精度要求，对下单价格和数量进行对齐和截断。
-6.  **执行下单 (`doPlaceOrder`)**: 调用由子类实现的、针对特定交易所的下单方法。
-7.  **返回统一结果**: 将交易所的原始响应包装成统一的 `Result<Order>` 格式。
-
-## 4. 核心接口 (I/O)
-
-### 4.1. `IPublicAdapter` (公共接口)
-
-```typescript
-interface IPublicAdapter {
-  readonly exchange: Exchange;
-
-  // 获取单个交易对的详细信息 (精度、最小/最大下单量等)
-  getSymbolInfo(symbol: string, tradeType: TradeType): Promise<Result<SymbolInfo>>;
-
-  // 获取指定市场的所有交易对
-  getAllSymbols(tradeType: TradeType): Promise<Result<SymbolInfo[]>>;
-
-  // 获取最新市场价
-  getPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>;
-
-  // 获取标记价格 (仅合约)
-  getMarkPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>;
-}
+```
+┌─────────────────────────────────────────────────────────┐
+│              Application Layer (User Code)              │
+├─────────────────────────────────────────────────────────┤
+│  Public APIs (BinancePublicAdapter, OkxPublicAdapter)   │
+├─────────────────────────────────────────────────────────┤
+│     Base Classes (BasePublicAdapter, BaseTradeAdapter)  │
+├─────────────────────────────────────────────────────────┤
+│  Core Types, Utils, and Error Handling                  │
+├─────────────────────────────────────────────────────────┤
+│  Exchange SDKs (binance, okx-api)                       │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 4.2. `ITradeAdapter` (交易接口)
+### Design Patterns
 
-```typescript
-interface ITradeAdapter extends IPublicAdapter {
-  // 账户信息
-  getBalance(tradeType: TradeType): Promise<Result<Balance[]>>;
-  getPositions(symbol?: string, tradeType?: TradeType): Promise<Result<Position[]>>;
+- **Composition**: `TradeAdapter` composes a `PublicAdapter` for accessing public data
+- **Strategy Pattern**: Exchange-specific mappers for type conversions
+- **Registry Pattern**: Mappers for centralized type mappings
+- **Result Pattern**: Go/Rust-style `Result<T, E>` for error handling instead of exceptions
 
-  // 交易操作
-  placeOrder(params: PlaceOrderParams): Promise<Result<Order>>;
-  cancelOrder(symbol: string, orderId: string, tradeType: TradeType): Promise<Result<Order>>;
-  placeOrders(paramsList: PlaceOrderParams[]): Promise<BatchPlaceOrderResult>;
+## Project Structure
 
-  // 订单查询
-  getOrder(symbol: string, orderId: string, tradeType: TradeType): Promise<Result<Order>>;
-  getOpenOrders(symbol?: string, tradeType?: TradeType): Promise<Result<Order[]>>;
-  
-  // 其他
-  setLeverage(symbol: string, leverage: number, tradeType: TradeType, positionSide?: PositionSide): Promise<Result<void>>;
-}
+```
+src/
+├── core/                           # Core abstractions and utilities
+│   ├── BasePublicAdapter.ts        # Abstract public API base class
+│   ├── BaseTradeAdapter.ts         # Abstract trade API base class
+│   ├── BaseWsUserDataAdapter.ts    # Abstract WebSocket adapter
+│   ├── types.ts                    # Complete type definitions
+│   ├── errorCodes.ts               # Unified error codes
+│   ├── tools/
+│   │   └── Cache.ts                # TTL-based cache utility
+│   └── utils/
+│       ├── math.ts                 # Decimal arithmetic
+│       ├── result.ts               # Result<T,E> constructor functions
+│       ├── symbol.ts               # Symbol parsing
+│       ├── network.ts              # HTTP/SOCKS proxy agent
+│       └── contract.ts             # Contract-specific utilities
+│
+├── exchanges/
+│   ├── binance/
+│   │   ├── PublicAdapter.ts        # Binance public API
+│   │   ├── TradeAdapter.ts         # Binance trading API
+│   │   ├── WsUserDataAdapter.ts    # Binance WebSocket
+│   │   ├── mappers.ts              # Type mappers
+│   │   └── utils.ts                # Symbol conversion, error extraction
+│   │
+│   └── okx/
+│       ├── PublicAdapter.ts        # OKX public API
+│       ├── TradeAdapter.ts         # OKX trading API
+│       ├── WsUserDataAdapter.ts    # OKX WebSocket
+│       ├── mappers.ts              # Type mappers
+│       └── utils.ts                # Symbol conversion, error extraction
+│
+└── index.ts                        # Main entry point
 ```
 
-## 5. 核心数据结构
+## Core Components
 
-### `Result<T, E>`
+### Base Classes
+
+| Class | Location | Purpose |
+|-------|----------|---------|
+| `BasePublicAdapter` | `src/core/BasePublicAdapter.ts` | Public market data access with caching |
+| `BaseTradeAdapter` | `src/core/BaseTradeAdapter.ts` | Trading operations with validation |
+| `BaseWsUserDataAdapter` | `src/core/BaseWsUserDataAdapter.ts` | WebSocket event subscription |
+
+### Exchange Implementations
+
+| Component | Binance | OKX |
+|-----------|---------|-----|
+| Public Adapter | `exchanges/binance/PublicAdapter.ts` | `exchanges/okx/PublicAdapter.ts` |
+| Trade Adapter | `exchanges/binance/TradeAdapter.ts` | `exchanges/okx/TradeAdapter.ts` |
+| WebSocket Adapter | `exchanges/binance/WsUserDataAdapter.ts` | `exchanges/okx/WsUserDataAdapter.ts` |
+| Mappers | `exchanges/binance/mappers.ts` | `exchanges/okx/mappers.ts` |
+
+## Type System
+
+### Result Pattern
+
 ```typescript
 type Result<T, E = ErrorInfo> =
   | { ok: true; data: T }
-  | { ok: false; error: E };
+  | { ok: false; error: E }
 
 interface ErrorInfo {
-  code: string;
-  message: string;
-  raw?: unknown;
+  code: string
+  message: string
+  raw?: unknown
 }
 ```
 
-### `SymbolInfo`
+### Core Types
+
+| Type | Values | Description |
+|------|--------|-------------|
+| `Exchange` | `'okx' \| 'binance'` | Supported exchanges |
+| `TradeType` | `'spot' \| 'futures' \| 'delivery'` | Market categories |
+| `OrderSide` | `'buy' \| 'sell'` | Order direction |
+| `PositionSide` | `'long' \| 'short'` | Position direction |
+| `OrderType` | `'limit' \| 'market' \| 'maker-only'` | Order types |
+| `OrderStatus` | `'pending' \| 'open' \| 'partial' \| 'filled' \| 'canceled' \| 'rejected' \| 'expired'` | Order states |
+
+### Symbol Format
+
+| Exchange | Spot | Futures | Delivery |
+|----------|------|---------|----------|
+| Unified | `BTC-USDT` | `BTC-USDT` | `BTC-USDT` |
+| Binance | `BTCUSDT` | `BTCUSDT` | `BTCUSD_PERP` |
+| OKX | `BTC-USDT` | `BTC-USDT-SWAP` | `BTC-USDT-240329` |
+
+## API Interfaces
+
+### IPublicAdapter
+
 ```typescript
-interface SymbolInfo {
-  symbol: string;           // 统一格式: BTC-USDT
-  rawSymbol: string;        // 交易所原始格式
-  baseCurrency: string;     // 基础货币: BTC
-  quoteCurrency: string;    // 计价货币: USDT
-  tradeType: TradeType;
-  tickSize: string;         // 价格精度 (最小变动单位)
-  stepSize: string;         // 数量精度 (最小变动单位)
-  minQty: string;           // 最小下单数量
-  maxQty: string;           // 最大下单数量
-  status: SymbolStatus;     // 交易对状态 (1: 可用)
+interface IPublicAdapter {
+  readonly exchange: Exchange
+
+  getSymbolInfo(symbol: string, tradeType: TradeType): Promise<Result<SymbolInfo>>
+  getAllSymbols(tradeType: TradeType): Promise<Result<SymbolInfo[]>>
+  getPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>
+  getMarkPrice(symbol: string, tradeType: TradeType): Promise<Result<string>>
+  getTicker(symbol: string, tradeType: TradeType): Promise<Result<Ticker>>
+  getOrderBook(symbol: string, tradeType: TradeType, limit?: number): Promise<Result<OrderBook>>
+  toRawSymbol(symbol: string, tradeType: TradeType): string
+  fromRawSymbol(rawSymbol: string, tradeType: TradeType): string
 }
 ```
 
-### `PlaceOrderParams`
+### ITradeAdapter
+
 ```typescript
-interface PlaceOrderParams {
-  symbol: string;
-  tradeType: TradeType;
-  side: 'buy' | 'sell';
-  orderType: 'limit' | 'market' | 'maker-only';
-  quantity: number | string;
-  price?: number | string;
-  positionSide?: 'long' | 'short'; // 合约必填
-  leverage?: number;
+interface ITradeAdapter extends IPublicAdapter {
+  readonly publicAdapter: IPublicAdapter
+
+  // Lifecycle
+  init(): Promise<Result<void>>
+  destroy(): Promise<void>
+  loadSymbols(tradeType?: TradeType): Promise<Result<void>>
+
+  // Account
+  getBalance(tradeType: TradeType): Promise<Result<Balance[]>>
+  getPositions(symbol?: string, tradeType?: TradeType): Promise<Result<Position[]>>
+
+  // Orders
+  placeOrder(params: PlaceOrderParams): Promise<Result<Order>>
+  placeOrders(paramsList: PlaceOrderParams[]): Promise<BatchPlaceOrderResult>
+  cancelOrder(symbol, orderId, tradeType): Promise<Result<Order>>
+  getOrder(symbol, orderId, tradeType): Promise<Result<Order>>
+  getOpenOrders(symbol?, tradeType?): Promise<Result<Order[]>>
+
+  // Strategy Orders
+  placeStrategyOrder(params: StrategyOrderParams): Promise<Result<StrategyOrder>>
+  cancelStrategyOrder(symbol, algoId, tradeType): Promise<Result<StrategyOrder>>
+  getStrategyOrder(algoId, tradeType): Promise<Result<StrategyOrder>>
+  getOpenStrategyOrders(symbol?, tradeType?): Promise<Result<StrategyOrder[]>>
+
+  // Leverage
+  setLeverage(symbol, leverage, tradeType, positionSide?): Promise<Result<void>>
 }
 ```
 
-### `Order`
+### IWsUserDataAdapter
+
 ```typescript
-interface Order {
-  orderId: string;
-  symbol: string;
-  tradeType: TradeType;
-  side: 'buy' | 'sell';
-  status: 'open' | 'filled' | 'canceled' | 'rejected' ...;
-  price: string;      // 下单价格
-  avgPrice: string;   // 成交均价
-  quantity: string;   // 下单数量
-  filledQty: string;  // 已成交数量
+interface IWsUserDataAdapter {
+  readonly exchange: Exchange
+
+  isConnected(tradeType?: TradeType): boolean
+  subscribe(options: WsSubscribeOptions, handler: WsEventHandler): Promise<void>
+  unsubscribe(tradeType?: TradeType): Promise<void>
+  on<T extends WsUserDataEvent['eventType']>(eventType: T, handler): void
+  off<T extends WsUserDataEvent['eventType']>(eventType: T, handler): void
+  close(): Promise<void>
 }
 ```
 
-## 6. 扩展性
+## Usage Examples
 
-要集成一个新的交易所，开发者需要完成以下步骤：
+### Public Market Data
 
-1.  **实现 `NewExchangePublicAdapter`**:
-    - 继承 `BasePublicAdapter`。
-    - 实现与交易所 API 对接的 `fetchSymbolInfo`, `fetchSymbols`, `_fetchPrice` 等方法。
-    - 实现 `toRawSymbol` 和 `fromRawSymbol` 进行交易对格式转换。
+```typescript
+import { BinancePublicAdapter } from 'hb-trader-adapter'
 
-2.  **实现 `NewExchangeTradeAdapter`**:
-    - 继承 `BaseTradeAdapter`。
-    - 实现 `getBalance`, `getPositions`, `cancelOrder`, `getOrder` 等与私有账户相关的 API 调用。
-    - 实现核心的 `doPlaceOrder` (单个下单) 和 `doBatchPlaceOrder` (批量下单) 方法。
+const adapter = new BinancePublicAdapter()
 
-3.  **注册到工厂函数**: 在 `src/index.ts` 的工厂函数中添加新的 `case`，使其可以通过 `createPublicAdapter('new-exchange')` 被实例化。
+const result = await adapter.getSymbolInfo('BTC-USDT', 'futures')
+if (result.ok) {
+  console.log(`Min Quantity: ${result.data.minQty}`)
+  console.log(`Tick Size: ${result.data.tickSize}`)
+}
 
-## 7. 工具函数
+const price = await adapter.getPrice('BTC-USDT', 'futures')
+const ticker = await adapter.getTicker('ETH-USDT', 'futures')
+const orderbook = await adapter.getOrderBook('BTC-USDT', 'spot', 20)
+```
 
-项目提供了一系列经过良好测试的工具函数，用于处理常见的计算和格式化任务：
+### Trading Operations
 
--   `formatPrice(price, tickSize)`: 按价格精度格式化。
--   `formatQuantity(quantity, stepSize)`: 按数量精度格式化。
--   `parseUnifiedSymbol(symbol)`: 解析统一格式的 Symbol。
--   `generateClientOrderId(exchange)`: 生成唯一的客户端订单 ID。
--   `wrapAsync(...)`: 将 Promise 包装成 `Result` 对象。
+```typescript
+import { OkxTradeAdapter } from 'hb-trader-adapter'
+
+const adapter = new OkxTradeAdapter({
+  apiKey: 'your_api_key',
+  apiSecret: 'your_api_secret',
+  passphrase: 'your_passphrase'
+})
+
+await adapter.init()
+
+const result = await adapter.placeOrder({
+  symbol: 'BTC-USDT',
+  tradeType: 'futures',
+  side: 'buy',
+  orderType: 'limit',
+  quantity: 0.01,
+  price: 50000,
+  positionSide: 'long'
+})
+
+if (result.ok) {
+  console.log(`Order placed: ${result.data.orderId}`)
+}
+```
+
+### WebSocket Real-Time Data
+
+```typescript
+import { BinanceWsUserDataAdapter } from 'hb-trader-adapter'
+
+const wsAdapter = new BinanceWsUserDataAdapter({
+  apiKey: 'your_api_key',
+  apiSecret: 'your_api_secret'
+})
+
+await wsAdapter.subscribe(
+  { tradeType: 'futures', autoReconnect: true },
+  (event) => console.log('Event:', event)
+)
+
+wsAdapter.on('order', (event) => {
+  console.log(`Order ${event.orderId} status: ${event.status}`)
+})
+
+wsAdapter.on('position', (event) => {
+  console.log(`Position updated: ${event.symbol}`)
+})
+```
+
+## Error Codes
+
+| Category | Codes |
+|----------|-------|
+| General | `INVALID_PARAMS`, `SYMBOL_NOT_AVAILABLE`, `INVALID_TRADE_TYPE` |
+| Balance | `INSUFFICIENT_BALANCE`, `INSUFFICIENT_POSITION` |
+| Quantity | `QUANTITY_TOO_SMALL`, `QUANTITY_TOO_LARGE` |
+| Orders | `PLACE_ORDER_ERROR`, `CANCEL_ORDER_ERROR`, `ORDER_NOT_FOUND` |
+| Strategy | `PLACE_STRATEGY_ORDER_ERROR`, `TRIGGER_PRICE_INVALID` |
+| Market Data | `SYMBOL_NOT_FOUND`, `PRICE_NOT_FOUND`, `TICKER_NOT_FOUND` |
+| WebSocket | `WS_CONNECTION_ERROR`, `WS_AUTHENTICATION_ERROR` |
+
+## Utility Functions
+
+| Module | Functions |
+|--------|-----------|
+| `utils/math.ts` | `truncateDecimal`, `adjustByStep`, `formatPrice`, `formatQuantity` |
+| `utils/symbol.ts` | `parseUnifiedSymbol`, `createUnifiedSymbol` |
+| `utils/result.ts` | `Ok`, `Err`, `wrapAsync` |
+| `utils/network.ts` | `createProxyAgent` |
+
+## Feature Support Matrix
+
+| Feature | Binance | OKX |
+|---------|---------|-----|
+| Spot Trading | ✅ | ✅ |
+| USDM Futures | ✅ | ✅ |
+| COINM Delivery | ✅ | ✅ |
+| Limit Orders | ✅ | ✅ |
+| Market Orders | ✅ | ✅ |
+| Maker-Only Orders | ✅ | ✅ |
+| Stop-Loss | ✅ | ✅ |
+| Take-Profit | ✅ | ✅ |
+| Trailing-Stop | ✅ | ✅ |
+| WebSocket User Data | ✅ | ✅ |
+| Batch Orders | ✅ (max 40) | ✅ (max 20) |
+| HTTPS Proxy | ✅ | ✅ |
+| SOCKS Proxy | ✅ | ✅ |
+| Demo Trading | ✅ | ✅ |
+
+## Extension Guide
+
+To add a new exchange:
+
+1. **Create Public Adapter** - Extend `BasePublicAdapter`
+2. **Create Trade Adapter** - Extend `BaseTradeAdapter`
+3. **Create WebSocket Adapter** - Extend `BaseWsUserDataAdapter`
+4. **Create Mappers** - Define type conversions
+5. **Create Utils** - Symbol conversion, error extraction
+6. **Export** - Add to `src/index.ts`
+
+## Build & Scripts
+
+```bash
+pnpm run build        # Compile TypeScript
+pnpm run dev          # Watch mode
+pnpm run test         # Run tests
+pnpm run typecheck    # Type validation
+```
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `src/core/types.ts` | All type definitions (~600 lines) |
+| `src/core/BasePublicAdapter.ts` | Public API base class |
+| `src/core/BaseTradeAdapter.ts` | Trade API base class (~400+ lines) |
+| `src/core/BaseWsUserDataAdapter.ts` | WebSocket base class |
+| `src/exchanges/binance/TradeAdapter.ts` | Binance implementation (~1200+ lines) |
+| `src/exchanges/okx/TradeAdapter.ts` | OKX implementation (~700+ lines) |
