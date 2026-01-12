@@ -1,176 +1,227 @@
-//! MACD (移动平均收敛散度)
-//!
-//! MACD = EMA(short) - EMA(long)
-//! Signal = EMA(MACD, signal_period)
-//! Histogram = MACD - Signal
+/// MACD 指标 (Moving Average Convergence Divergence)
+/// MACD Line = EMA(fast) - EMA(slow)
+/// Signal Line = EMA(MACD Line, signal_period)
+/// Histogram = MACD Line - Signal Line
 
-use crate::Kline;
-use crate::common::RingBuffer;
-use super::{Indicator, MacdResult};
+use crate::common::F64RingBuffer;
+use crate::kline::Bar;
+use super::{Indicator, IndicatorValue, PriceType};
 
-/// EMA (指数移动平均)
-#[derive(Debug)]
-struct EMA {
-    period: usize,
-    alpha: f64,
-    value: f64,
-    count: usize,
-}
-
-impl EMA {
-    fn new(period: usize) -> Self {
-        Self {
-            period,
-            alpha: 2.0 / (period as f64 + 1.0),
-            value: 0.0,
-            count: 0,
-        }
-    }
-
-    fn add(&mut self, value: f64) -> f64 {
-        self.count += 1;
-        if self.count == 1 {
-            self.value = value;
-        } else {
-            self.value = self.alpha * value + (1.0 - self.alpha) * self.value;
-        }
-        self.value
-    }
-
-    fn update_last(&mut self, value: f64) -> f64 {
-        // 近似更新
-        self.value = self.alpha * value + (1.0 - self.alpha) * self.value;
-        self.value
-    }
-
-    fn get(&self) -> f64 {
-        if self.count == 0 {
-            f64::NAN
-        } else {
-            self.value
-        }
-    }
-}
-
-/// MACD 指标
 #[derive(Debug)]
 pub struct MACD {
-    short_ema: EMA,
-    long_ema: EMA,
-    signal_ema: EMA,
-    short_period: usize,
-    long_period: usize,
+    name: String,
+    #[allow(dead_code)]
+    fast_period: usize,
+    slow_period: usize,
     signal_period: usize,
-
-    result_macd: RingBuffer,
-    result_signal: RingBuffer,
-    result_histogram: RingBuffer,
+    price_type: PriceType,
+    // EMA 值
+    fast_ema: f64,
+    slow_ema: f64,
+    signal_ema: f64,
+    // EMA 乘数
+    fast_mult: f64,
+    slow_mult: f64,
+    signal_mult: f64,
+    // 输出
+    macd_values: F64RingBuffer,
+    signal_values: F64RingBuffer,
+    histogram_values: F64RingBuffer,
+    // 状态
+    count: usize,
+    last_timestamp: i64,
+    // 初始化用
+    price_sum: f64,
 }
 
 impl MACD {
-    /// 创建 MACD 指标
-    ///
-    /// - short_period: 短期 EMA 周期 (通常 12)
-    /// - long_period: 长期 EMA 周期 (通常 26)
-    /// - signal_period: 信号线周期 (通常 9)
-    /// - max_history: 结果历史长度
-    pub fn new(short_period: usize, long_period: usize, signal_period: usize, max_history: usize) -> Self {
+    pub fn new(fast_period: usize, slow_period: usize, signal_period: usize) -> Self {
+        Self::with_price_type(fast_period, slow_period, signal_period, PriceType::Close)
+    }
+
+    pub fn with_price_type(
+        fast_period: usize,
+        slow_period: usize,
+        signal_period: usize,
+        price_type: PriceType,
+    ) -> Self {
         Self {
-            short_ema: EMA::new(short_period),
-            long_ema: EMA::new(long_period),
-            signal_ema: EMA::new(signal_period),
-            short_period,
-            long_period,
+            name: format!("MACD_{}_{}", fast_period, slow_period),
+            fast_period,
+            slow_period,
             signal_period,
-            result_macd: RingBuffer::new(max_history),
-            result_signal: RingBuffer::new(max_history),
-            result_histogram: RingBuffer::new(max_history),
+            price_type,
+            fast_ema: 0.0,
+            slow_ema: 0.0,
+            signal_ema: 0.0,
+            fast_mult: 2.0 / (fast_period as f64 + 1.0),
+            slow_mult: 2.0 / (slow_period as f64 + 1.0),
+            signal_mult: 2.0 / (signal_period as f64 + 1.0),
+            macd_values: F64RingBuffer::new(slow_period * 2),
+            signal_values: F64RingBuffer::new(slow_period * 2),
+            histogram_values: F64RingBuffer::new(slow_period * 2),
+            count: 0,
+            last_timestamp: 0,
+            price_sum: 0.0,
         }
     }
 
-    /// 默认参数 (12, 26, 9)
-    pub fn default_params(max_history: usize) -> Self {
-        Self::new(12, 26, 9, max_history)
+    /// 标准 MACD (12, 26, 9)
+    pub fn standard() -> Self {
+        Self::new(12, 26, 9)
     }
 
-    /// 添加数值
-    pub fn add_value(&mut self, close: f64) -> MacdResult {
-        let short = self.short_ema.add(close);
-        let long = self.long_ema.add(close);
-
-        let macd = short - long;
-        let signal = self.signal_ema.add(macd);
-        let histogram = macd - signal;
-
-        let result = if self.long_ema.count >= self.long_period {
-            MacdResult { macd, signal, histogram }
-        } else {
-            MacdResult {
-                macd: f64::NAN,
-                signal: f64::NAN,
-                histogram: f64::NAN,
-            }
-        };
-
-        self.result_macd.push(result.macd);
-        self.result_signal.push(result.signal);
-        self.result_histogram.push(result.histogram);
-
-        result
+    /// 获取 MACD 线值
+    pub fn macd_line(&self) -> Option<f64> {
+        self.macd_values.last()
     }
 
-    /// 更新最后一个值
-    pub fn update_last_value(&mut self, close: f64) -> MacdResult {
-        let short = self.short_ema.update_last(close);
-        let long = self.long_ema.update_last(close);
-
-        let macd = short - long;
-        let signal = self.signal_ema.update_last(macd);
-        let histogram = macd - signal;
-
-        let result = if self.long_ema.count >= self.long_period {
-            MacdResult { macd, signal, histogram }
-        } else {
-            MacdResult {
-                macd: f64::NAN,
-                signal: f64::NAN,
-                histogram: f64::NAN,
-            }
-        };
-
-        self.result_macd.update_last(result.macd);
-        self.result_signal.update_last(result.signal);
-        self.result_histogram.update_last(result.histogram);
-
-        result
+    /// 获取信号线值
+    pub fn signal_line(&self) -> Option<f64> {
+        self.signal_values.last()
     }
 
-    /// 获取 MACD 结果
-    pub fn get_macd(&self, index: i32) -> MacdResult {
-        MacdResult {
-            macd: self.result_macd.get(index),
-            signal: self.result_signal.get(index),
-            histogram: self.result_histogram.get(index),
-        }
+    /// 获取柱状图值
+    pub fn histogram(&self) -> Option<f64> {
+        self.histogram_values.last()
     }
 }
 
 impl Indicator for MACD {
-    fn add(&mut self, kline: &Kline) {
-        self.add_value(kline.close);
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    fn update_last(&mut self, kline: &Kline) {
-        self.update_last_value(kline.close);
+    fn min_periods(&self) -> usize {
+        self.slow_period + self.signal_period - 1
     }
 
-    fn get_value(&self, index: i32) -> f64 {
-        // 返回 MACD 线
-        self.result_macd.get(index)
+    fn push(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.count += 1;
+        self.last_timestamp = bar.timestamp;
+        self.price_sum += price;
+
+        if self.count < self.slow_period {
+            // 收集数据阶段
+            return;
+        }
+
+        if self.count == self.slow_period {
+            // 初始化 EMA
+            let sma = self.price_sum / self.slow_period as f64;
+            self.fast_ema = sma;
+            self.slow_ema = sma;
+        } else {
+            // 更新 EMA
+            self.fast_ema = (price - self.fast_ema) * self.fast_mult + self.fast_ema;
+            self.slow_ema = (price - self.slow_ema) * self.slow_mult + self.slow_ema;
+        }
+
+        let macd = self.fast_ema - self.slow_ema;
+        self.macd_values.push(macd);
+
+        // 计算信号线
+        let macd_count = self.macd_values.len();
+        if macd_count < self.signal_period {
+            return;
+        }
+
+        if macd_count == self.signal_period {
+            // 初始化信号线 EMA
+            self.signal_ema = self.macd_values.mean();
+        } else {
+            self.signal_ema = (macd - self.signal_ema) * self.signal_mult + self.signal_ema;
+        }
+
+        self.signal_values.push(self.signal_ema);
+        self.histogram_values.push(macd - self.signal_ema);
+    }
+
+    fn update_last(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.last_timestamp = bar.timestamp;
+
+        if self.count < self.slow_period {
+            return;
+        }
+
+        // 重新计算当前 EMA（使用前一个值）
+        let prev_fast = if self.count == self.slow_period {
+            self.price_sum / self.slow_period as f64
+        } else {
+            // 近似：使用当前值回推
+            (self.fast_ema - price * self.fast_mult) / (1.0 - self.fast_mult)
+        };
+
+        let prev_slow = if self.count == self.slow_period {
+            self.price_sum / self.slow_period as f64
+        } else {
+            (self.slow_ema - price * self.slow_mult) / (1.0 - self.slow_mult)
+        };
+
+        let new_fast = (price - prev_fast) * self.fast_mult + prev_fast;
+        let new_slow = (price - prev_slow) * self.slow_mult + prev_slow;
+        let macd = new_fast - new_slow;
+
+        self.macd_values.update_last(macd);
+
+        if self.signal_values.len() > 0 {
+            let prev_signal = if let Some(s) = self.signal_values.get_from_end(2) {
+                s
+            } else {
+                self.signal_ema
+            };
+            let new_signal = (macd - prev_signal) * self.signal_mult + prev_signal;
+            self.signal_values.update_last(new_signal);
+            self.histogram_values.update_last(macd - new_signal);
+        }
+    }
+
+    fn value(&self) -> Option<f64> {
+        self.macd_line()
+    }
+
+    fn result(&self) -> Option<IndicatorValue> {
+        if let (Some(macd), Some(signal), Some(hist)) =
+            (self.macd_line(), self.signal_line(), self.histogram())
+        {
+            Some(IndicatorValue::with_extra(
+                macd,
+                self.last_timestamp,
+                vec![signal, hist],
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        self.signal_values.len() > 0
+    }
+
+    fn get(&self, index: usize) -> Option<f64> {
+        self.macd_values.get(index)
+    }
+
+    fn get_from_end(&self, n: usize) -> Option<f64> {
+        self.macd_values.get_from_end(n)
     }
 
     fn len(&self) -> usize {
-        self.result_macd.len()
+        self.macd_values.len()
+    }
+
+    fn reset(&mut self) {
+        self.fast_ema = 0.0;
+        self.slow_ema = 0.0;
+        self.signal_ema = 0.0;
+        self.macd_values.clear();
+        self.signal_values.clear();
+        self.histogram_values.clear();
+        self.count = 0;
+        self.last_timestamp = 0;
+        self.price_sum = 0.0;
     }
 }
 
@@ -178,36 +229,71 @@ impl Indicator for MACD {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_macd_calculation() {
-        let mut macd = MACD::default_params(100);
-
-        // 添加足够数据
-        for i in 0..30 {
-            macd.add_value(100.0 + (i as f64 * 0.5));
-        }
-
-        let result = macd.get_macd(-1);
-        // 上涨趋势，MACD 应该为正
-        assert!(result.macd > 0.0);
+    fn create_bars(prices: &[f64]) -> Vec<Bar> {
+        prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Bar::new(i as i64 * 1000, p, p + 1.0, p - 1.0, p, 100.0))
+            .collect()
     }
 
     #[test]
-    fn test_macd_crossover() {
-        let mut macd = MACD::new(3, 6, 3, 100);
+    fn test_macd_basic() {
+        let mut macd = MACD::new(3, 5, 2);
+        // 上涨趋势
+        let prices: Vec<f64> = (0..15).map(|i| 100.0 + i as f64).collect();
+        let bars = create_bars(&prices);
 
-        // 先下跌后上涨，观察金叉
-        let prices = vec![
-            100.0, 98.0, 96.0, 94.0, 92.0, 90.0,  // 下跌
-            92.0, 94.0, 96.0, 98.0, 100.0, 102.0, // 上涨
-        ];
-
-        for p in prices {
-            macd.add_value(p);
+        for bar in &bars {
+            macd.push(bar);
         }
 
-        // 上涨后 histogram 应该转正
-        let result = macd.get_macd(-1);
-        println!("MACD: {}, Signal: {}, Hist: {}", result.macd, result.signal, result.histogram);
+        assert!(macd.is_ready());
+        // 上涨趋势中，MACD 应该为正
+        assert!(macd.macd_line().unwrap() > 0.0);
+    }
+
+    #[test]
+    fn test_macd_standard() {
+        let mut macd = MACD::standard();
+        // 需要足够的数据
+        let prices: Vec<f64> = (0..50).map(|i| 100.0 + (i as f64).sin() * 10.0).collect();
+        let bars = create_bars(&prices);
+
+        for bar in &bars {
+            macd.push(bar);
+        }
+
+        assert!(macd.is_ready());
+        assert!(macd.signal_line().is_some());
+        assert!(macd.histogram().is_some());
+    }
+
+    #[test]
+    fn test_macd_result() {
+        let mut macd = MACD::new(3, 5, 2);
+        let prices: Vec<f64> = (0..15).map(|i| 100.0 + i as f64).collect();
+        let bars = create_bars(&prices);
+
+        for bar in &bars {
+            macd.push(bar);
+        }
+
+        let result = macd.result().unwrap();
+        assert!(result.extra.is_some());
+        let extra = result.extra.unwrap();
+        assert_eq!(extra.len(), 2); // signal, histogram
+    }
+
+    #[test]
+    fn test_macd_not_ready() {
+        let mut macd = MACD::standard();
+        let bars = create_bars(&[100.0, 101.0, 102.0]);
+
+        for bar in &bars {
+            macd.push(bar);
+        }
+
+        assert!(!macd.is_ready());
     }
 }

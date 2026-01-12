@@ -1,193 +1,176 @@
-//! 布林带指标
-//!
-//! 优化: 使用 Welford 算法实现 O(1) 增量标准差计算
+/// 布林带指标 (Bollinger Bands)
+/// Middle = SMA(close, period)
+/// Upper = Middle + std_dev_factor * StdDev(close, period)
+/// Lower = Middle - std_dev_factor * StdDev(close, period)
 
-use crate::Kline;
-use crate::common::RingBuffer;
-use super::{Indicator, BollResult, MA, ma::KlineField};
+use crate::common::F64RingBuffer;
+use crate::kline::Bar;
+use super::{Indicator, IndicatorValue, PriceType};
 
-/// 布林带指标
 #[derive(Debug)]
 pub struct BOLL {
-    ma: MA,
-    values: RingBuffer,      // 价格窗口
-    std_factor: f64,         // 标准差倍数 (通常为 2)
+    name: String,
     period: usize,
-
-    // Welford 增量计算状态
-    mean: f64,
-    m2: f64,                 // 平方和
+    std_dev_factor: f64,
+    price_type: PriceType,
+    // 输入缓存
+    input_buffer: F64RingBuffer,
+    // 输出
+    middle_values: F64RingBuffer,
+    upper_values: F64RingBuffer,
+    lower_values: F64RingBuffer,
+    // 状态
     count: usize,
-
-    // 结果存储
-    result_up: RingBuffer,
-    result_mid: RingBuffer,
-    result_low: RingBuffer,
+    last_timestamp: i64,
 }
 
 impl BOLL {
-    /// 创建布林带指标
-    ///
-    /// - period: 周期 (通常 20)
-    /// - std_factor: 标准差倍数 (通常 2)
-    /// - max_history: 结果历史长度
-    pub fn new(period: usize, std_factor: f64, max_history: usize) -> Self {
+    pub fn new(period: usize, std_dev_factor: f64) -> Self {
+        Self::with_price_type(period, std_dev_factor, PriceType::Close)
+    }
+
+    pub fn with_price_type(period: usize, std_dev_factor: f64, price_type: PriceType) -> Self {
         Self {
-            ma: MA::new(period, max_history, KlineField::Close),
-            values: RingBuffer::new(period),
-            std_factor,
+            name: format!("BOLL_{}", period),
             period,
-            mean: 0.0,
-            m2: 0.0,
+            std_dev_factor,
+            price_type,
+            input_buffer: F64RingBuffer::new(period),
+            middle_values: F64RingBuffer::new(period * 2),
+            upper_values: F64RingBuffer::new(period * 2),
+            lower_values: F64RingBuffer::new(period * 2),
             count: 0,
-            result_up: RingBuffer::new(max_history),
-            result_mid: RingBuffer::new(max_history),
-            result_low: RingBuffer::new(max_history),
+            last_timestamp: 0,
         }
     }
 
-    /// Welford 算法: 添加值
-    fn welford_add(&mut self, x: f64) {
-        self.count += 1;
-        let delta = x - self.mean;
-        self.mean += delta / self.count as f64;
-        let delta2 = x - self.mean;
-        self.m2 += delta * delta2;
+    /// 标准布林带 (20, 2.0)
+    pub fn standard() -> Self {
+        Self::new(20, 2.0)
     }
 
-    /// Welford 算法: 移除值 (滑动窗口)
-    fn welford_remove(&mut self, x: f64) {
-        if self.count <= 1 {
-            self.mean = 0.0;
-            self.m2 = 0.0;
-            self.count = 0;
-            return;
-        }
-
-        let delta = x - self.mean;
-        self.mean = (self.mean * self.count as f64 - x) / (self.count - 1) as f64;
-        let delta2 = x - self.mean;
-        self.m2 -= delta * delta2;
-        self.count -= 1;
-
-        // 防止浮点误差导致负数
-        if self.m2 < 0.0 {
-            self.m2 = 0.0;
-        }
+    fn calculate(&self) -> (f64, f64, f64) {
+        let middle = self.input_buffer.mean();
+        let std_dev = self.input_buffer.std_dev();
+        let upper = middle + self.std_dev_factor * std_dev;
+        let lower = middle - self.std_dev_factor * std_dev;
+        (middle, upper, lower)
     }
 
-    /// 计算标准差
-    fn std_dev(&self) -> f64 {
-        if self.count < 2 {
-            return f64::NAN;
-        }
-        (self.m2 / self.count as f64).sqrt()
+    /// 获取中轨值
+    pub fn middle(&self) -> Option<f64> {
+        self.middle_values.last()
     }
 
-    /// 添加数值并返回结果
-    pub fn add_value(&mut self, close: f64) -> BollResult {
-        // 更新 MA
-        let ma_value = self.ma.add_value(close);
+    /// 获取上轨值
+    pub fn upper(&self) -> Option<f64> {
+        self.upper_values.last()
+    }
 
-        // 滑动窗口: 移除最老值
-        if self.values.is_full() {
-            let old = self.values.first();
-            self.welford_remove(old);
-        }
+    /// 获取下轨值
+    pub fn lower(&self) -> Option<f64> {
+        self.lower_values.last()
+    }
 
-        // 添加新值
-        self.welford_add(close);
-        self.values.push(close);
-
-        // 计算布林带
-        let result = if self.values.len() >= self.period {
-            let std = self.std_dev();
-            BollResult {
-                up: ma_value + self.std_factor * std,
-                mid: ma_value,
-                low: ma_value - self.std_factor * std,
+    /// 获取带宽 (bandwidth = (upper - lower) / middle)
+    pub fn bandwidth(&self) -> Option<f64> {
+        if let (Some(m), Some(u), Some(l)) = (self.middle(), self.upper(), self.lower()) {
+            if m != 0.0 {
+                Some((u - l) / m)
+            } else {
+                None
             }
         } else {
-            BollResult {
-                up: f64::NAN,
-                mid: f64::NAN,
-                low: f64::NAN,
-            }
-        };
-
-        self.result_up.push(result.up);
-        self.result_mid.push(result.mid);
-        self.result_low.push(result.low);
-
-        result
+            None
+        }
     }
 
-    /// 更新最后一个值
-    pub fn update_last_value(&mut self, close: f64) -> BollResult {
-        if self.values.is_empty() {
-            return BollResult::default();
-        }
-
-        // 移除旧的最后一个值的 Welford 贡献
-        let old_last = self.values.last();
-        self.welford_remove(old_last);
-
-        // 添加新值的 Welford 贡献
-        self.welford_add(close);
-        self.values.update_last(close);
-
-        // 更新 MA
-        let ma_value = self.ma.update_last_value(close);
-
-        // 计算布林带
-        let result = if self.values.len() >= self.period {
-            let std = self.std_dev();
-            BollResult {
-                up: ma_value + self.std_factor * std,
-                mid: ma_value,
-                low: ma_value - self.std_factor * std,
+    /// 获取 %B (percent_b = (price - lower) / (upper - lower))
+    pub fn percent_b(&self, price: f64) -> Option<f64> {
+        if let (Some(u), Some(l)) = (self.upper(), self.lower()) {
+            let range = u - l;
+            if range != 0.0 {
+                Some((price - l) / range)
+            } else {
+                None
             }
         } else {
-            BollResult {
-                up: f64::NAN,
-                mid: f64::NAN,
-                low: f64::NAN,
-            }
-        };
-
-        self.result_up.update_last(result.up);
-        self.result_mid.update_last(result.mid);
-        self.result_low.update_last(result.low);
-
-        result
-    }
-
-    /// 获取布林带结果
-    pub fn get_boll(&self, index: i32) -> BollResult {
-        BollResult {
-            up: self.result_up.get(index),
-            mid: self.result_mid.get(index),
-            low: self.result_low.get(index),
+            None
         }
     }
 }
 
 impl Indicator for BOLL {
-    fn add(&mut self, kline: &Kline) {
-        self.add_value(kline.close);
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    fn update_last(&mut self, kline: &Kline) {
-        self.update_last_value(kline.close);
+    fn min_periods(&self) -> usize {
+        self.period
     }
 
-    fn get_value(&self, index: i32) -> f64 {
-        // 返回中轨
-        self.result_mid.get(index)
+    fn push(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.input_buffer.push(price);
+        self.count += 1;
+        self.last_timestamp = bar.timestamp;
+
+        if self.count >= self.period {
+            let (middle, upper, lower) = self.calculate();
+            self.middle_values.push(middle);
+            self.upper_values.push(upper);
+            self.lower_values.push(lower);
+        }
+    }
+
+    fn update_last(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.input_buffer.update_last(price);
+        self.last_timestamp = bar.timestamp;
+
+        if self.count >= self.period {
+            let (middle, upper, lower) = self.calculate();
+            self.middle_values.update_last(middle);
+            self.upper_values.update_last(upper);
+            self.lower_values.update_last(lower);
+        }
+    }
+
+    fn value(&self) -> Option<f64> {
+        self.middle()
+    }
+
+    fn result(&self) -> Option<IndicatorValue> {
+        if let (Some(m), Some(u), Some(l)) = (self.middle(), self.upper(), self.lower()) {
+            Some(IndicatorValue::with_extra(m, self.last_timestamp, vec![u, l]))
+        } else {
+            None
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        self.count >= self.period
+    }
+
+    fn get(&self, index: usize) -> Option<f64> {
+        self.middle_values.get(index)
+    }
+
+    fn get_from_end(&self, n: usize) -> Option<f64> {
+        self.middle_values.get_from_end(n)
     }
 
     fn len(&self) -> usize {
-        self.result_mid.len()
+        self.middle_values.len()
+    }
+
+    fn reset(&mut self) {
+        self.input_buffer.clear();
+        self.middle_values.clear();
+        self.upper_values.clear();
+        self.lower_values.clear();
+        self.count = 0;
+        self.last_timestamp = 0;
     }
 }
 
@@ -195,54 +178,112 @@ impl Indicator for BOLL {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_boll_calculation() {
-        let mut boll = BOLL::new(3, 2.0, 100);
-
-        boll.add_value(100.0);
-        boll.add_value(102.0);
-        boll.add_value(101.0);
-
-        let result = boll.get_boll(-1);
-        // MA = (100+102+101)/3 = 101
-        assert!((result.mid - 101.0).abs() < 0.01);
-        // StdDev ≈ 0.816
-        assert!(result.up > result.mid);
-        assert!(result.low < result.mid);
+    fn create_bars(prices: &[f64]) -> Vec<Bar> {
+        prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Bar::new(i as i64 * 1000, p, p + 1.0, p - 1.0, p, 100.0))
+            .collect()
     }
 
     #[test]
-    fn test_boll_sliding_window() {
-        let mut boll = BOLL::new(3, 2.0, 100);
+    fn test_boll_basic() {
+        let mut boll = BOLL::new(5, 2.0);
+        let prices: Vec<f64> = vec![10.0, 11.0, 12.0, 11.0, 10.0, 11.0, 12.0];
+        let bars = create_bars(&prices);
 
-        boll.add_value(100.0);
-        boll.add_value(102.0);
-        boll.add_value(101.0);
-        boll.add_value(103.0); // 窗口: 102, 101, 103
-
-        let result = boll.get_boll(-1);
-        // MA = (102+101+103)/3 = 102
-        assert!((result.mid - 102.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_welford_accuracy() {
-        // 测试 Welford 算法的准确性
-        let mut boll = BOLL::new(5, 2.0, 100);
-        let values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
-
-        for v in &values {
-            boll.add_value(*v);
+        for bar in &bars {
+            boll.push(bar);
         }
 
-        // 手动计算标准差
-        let mean = 30.0;
-        let variance: f64 = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / 5.0;
-        let expected_std = variance.sqrt();
+        assert!(boll.is_ready());
+        assert!(boll.middle().is_some());
+        assert!(boll.upper().is_some());
+        assert!(boll.lower().is_some());
 
-        let result = boll.get_boll(-1);
-        let actual_std = (result.up - result.mid) / 2.0;
+        // 上轨 > 中轨 > 下轨
+        assert!(boll.upper().unwrap() > boll.middle().unwrap());
+        assert!(boll.middle().unwrap() > boll.lower().unwrap());
+    }
 
-        assert!((actual_std - expected_std).abs() < 0.01);
+    #[test]
+    fn test_boll_constant_price() {
+        let mut boll = BOLL::new(5, 2.0);
+        // 恒定价格，标准差为0
+        let bars = create_bars(&[100.0, 100.0, 100.0, 100.0, 100.0]);
+
+        for bar in &bars {
+            boll.push(bar);
+        }
+
+        assert!(boll.is_ready());
+        // 当标准差为0时，上轨=中轨=下轨
+        assert!((boll.upper().unwrap() - boll.middle().unwrap()).abs() < 1e-10);
+        assert!((boll.lower().unwrap() - boll.middle().unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_boll_bandwidth() {
+        let mut boll = BOLL::new(5, 2.0);
+        let bars = create_bars(&[10.0, 12.0, 8.0, 14.0, 6.0]);
+
+        for bar in &bars {
+            boll.push(bar);
+        }
+
+        let bandwidth = boll.bandwidth().unwrap();
+        assert!(bandwidth > 0.0);
+    }
+
+    #[test]
+    fn test_boll_percent_b() {
+        let mut boll = BOLL::new(5, 2.0);
+        let bars = create_bars(&[10.0, 11.0, 12.0, 11.0, 10.0]);
+
+        for bar in &bars {
+            boll.push(bar);
+        }
+
+        let upper = boll.upper().unwrap();
+        let lower = boll.lower().unwrap();
+        let middle = boll.middle().unwrap();
+
+        // 价格在下轨时 %B = 0
+        assert!((boll.percent_b(lower).unwrap()).abs() < 1e-10);
+        // 价格在上轨时 %B = 1
+        assert!((boll.percent_b(upper).unwrap() - 1.0).abs() < 1e-10);
+        // 价格在中轨时 %B = 0.5
+        assert!((boll.percent_b(middle).unwrap() - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_boll_update_last() {
+        let mut boll = BOLL::new(5, 2.0);
+        let bars = create_bars(&[10.0, 11.0, 12.0, 11.0, 10.0]);
+
+        for bar in &bars {
+            boll.push(bar);
+        }
+
+        let old_middle = boll.middle().unwrap();
+
+        // 更新最后一根
+        let updated = Bar::new(4000, 15.0, 16.0, 14.0, 15.0, 100.0);
+        boll.update_last(&updated);
+
+        // 中轨应该上移
+        assert!(boll.middle().unwrap() > old_middle);
+    }
+
+    #[test]
+    fn test_boll_not_ready() {
+        let mut boll = BOLL::standard();
+        let bars = create_bars(&[100.0, 101.0, 102.0]);
+
+        for bar in &bars {
+            boll.push(bar);
+        }
+
+        assert!(!boll.is_ready());
     }
 }

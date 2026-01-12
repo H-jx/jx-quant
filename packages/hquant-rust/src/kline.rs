@@ -1,369 +1,336 @@
-//! K线数据结构
-//!
-//! 支持两种存储模式:
-//! - Kline: 单根K线 (AoS)
-//! - KlineFrame: 列式存储 (SoA) - 高性能批量处理
+/// K线数据结构 - 使用 SoA (Struct of Arrays) 列式存储
+/// 优点：
+/// 1. 缓存友好 - 连续内存访问
+/// 2. SIMD 友好 - 便于向量化计算
+/// 3. 内存效率 - 避免结构体填充
 
-use serde::{Deserialize, Serialize};
 use crate::common::RingBuffer;
 
-/// 单根K线数据
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Kline {
+/// 单根K线数据（用于输入/输出）
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Bar {
+    pub timestamp: i64,
     pub open: f64,
-    pub close: f64,
     pub high: f64,
     pub low: f64,
+    pub close: f64,
     pub volume: f64,
-    pub timestamp: i64,
-    #[serde(default)]
-    pub buy: Option<f64>,
-    #[serde(default)]
-    pub sell: Option<f64>,
 }
 
-impl Kline {
-    pub fn new(open: f64, close: f64, high: f64, low: f64, volume: f64, timestamp: i64) -> Self {
+impl Bar {
+    pub fn new(timestamp: i64, open: f64, high: f64, low: f64, close: f64, volume: f64) -> Self {
         Self {
+            timestamp,
             open,
-            close,
             high,
             low,
+            close,
             volume,
-            timestamp,
-            buy: None,
-            sell: None,
         }
+    }
+
+    /// 合并两根K线（用于周期聚合）
+    pub fn merge(&mut self, other: &Bar) {
+        self.high = self.high.max(other.high);
+        self.low = self.low.min(other.low);
+        self.close = other.close;
+        self.volume += other.volume;
+        // timestamp 和 open 保持不变
     }
 }
 
-/// 列式存储的K线数据帧 (Struct of Arrays)
-///
-/// 优势:
-/// - 更好的 CPU 缓存命中率
-/// - 支持 SIMD 向量化
-/// - 内存占用更小
-#[derive(Debug)]
-pub struct KlineFrame {
-    pub open: RingBuffer,
-    pub close: RingBuffer,
-    pub high: RingBuffer,
-    pub low: RingBuffer,
-    pub volume: RingBuffer,
-    pub timestamp: Vec<i64>,
+/// K线序列 - SoA 列式存储
+#[derive(Debug, Clone)]
+pub struct KlineSeries {
+    pub timestamp: RingBuffer<i64>,
+    pub open: RingBuffer<f64>,
+    pub high: RingBuffer<f64>,
+    pub low: RingBuffer<f64>,
+    pub close: RingBuffer<f64>,
+    pub volume: RingBuffer<f64>,
     capacity: usize,
-    len: usize,
 }
 
-impl KlineFrame {
-    /// 创建指定容量的 K线帧
+impl KlineSeries {
+    /// 创建指定容量的K线序列
     pub fn new(capacity: usize) -> Self {
         Self {
+            timestamp: RingBuffer::new(capacity),
             open: RingBuffer::new(capacity),
-            close: RingBuffer::new(capacity),
             high: RingBuffer::new(capacity),
             low: RingBuffer::new(capacity),
+            close: RingBuffer::new(capacity),
             volume: RingBuffer::new(capacity),
-            timestamp: Vec::with_capacity(capacity),
             capacity,
-            len: 0,
         }
     }
 
-    /// 添加一根K线
-    pub fn push(&mut self, kline: &Kline) {
-        self.open.push(kline.open);
-        self.close.push(kline.close);
-        self.high.push(kline.high);
-        self.low.push(kline.low);
-        self.volume.push(kline.volume);
-
-        if self.len < self.capacity {
-            self.timestamp.push(kline.timestamp);
-            self.len += 1;
-        } else {
-            // 环形覆盖 timestamp
-            let idx = self.len % self.capacity;
-            self.timestamp[idx] = kline.timestamp;
-        }
+    /// 追加一根K线
+    #[inline]
+    pub fn append(&mut self, bar: &Bar) {
+        self.timestamp.push(bar.timestamp);
+        self.open.push(bar.open);
+        self.high.push(bar.high);
+        self.low.push(bar.low);
+        self.close.push(bar.close);
+        self.volume.push(bar.volume);
     }
 
-    /// 更新最后一根K线
-    pub fn update_last(&mut self, kline: &Kline) {
-        self.open.update_last(kline.open);
-        self.close.update_last(kline.close);
-        self.high.update_last(kline.high);
-        self.low.update_last(kline.low);
-        self.volume.update_last(kline.volume);
-
-        if !self.timestamp.is_empty() {
-            let last_idx = (self.len - 1) % self.capacity;
-            self.timestamp[last_idx] = kline.timestamp;
-        }
+    /// 更新最后一根K线（用于实时websocket更新）
+    #[inline]
+    pub fn update_last(&mut self, bar: &Bar) {
+        self.timestamp.update_last(bar.timestamp);
+        self.open.update_last(bar.open);
+        self.high.update_last(bar.high);
+        self.low.update_last(bar.low);
+        self.close.update_last(bar.close);
+        self.volume.update_last(bar.volume);
     }
 
     /// 获取指定索引的K线
-    pub fn get(&self, index: i32) -> Option<Kline> {
-        let open = self.open.get(index);
-        if open.is_nan() {
-            return None;
-        }
-
-        let idx = if index < 0 {
-            let abs_idx = (-index) as usize;
-            if abs_idx > self.len {
-                return None;
-            }
-            self.len - abs_idx
-        } else {
-            index as usize
-        };
-
-        Some(Kline {
-            open,
-            close: self.close.get(index),
-            high: self.high.get(index),
-            low: self.low.get(index),
-            volume: self.volume.get(index),
-            timestamp: self.timestamp.get(idx % self.capacity).copied().unwrap_or(0),
-            buy: None,
-            sell: None,
+    pub fn get(&self, index: usize) -> Option<Bar> {
+        Some(Bar {
+            timestamp: *self.timestamp.get(index)?,
+            open: *self.open.get(index)?,
+            high: *self.high.get(index)?,
+            low: *self.low.get(index)?,
+            close: *self.close.get(index)?,
+            volume: *self.volume.get(index)?,
         })
     }
 
-    /// 从 JSON 批量导入
-    pub fn from_json(json: &str, capacity: usize) -> Result<Self, serde_json::Error> {
-        let klines: Vec<Kline> = serde_json::from_str(json)?;
-        let mut frame = Self::new(capacity.max(klines.len()));
-        for kline in &klines {
-            frame.push(kline);
+    /// 获取最后一根K线
+    #[inline]
+    pub fn last(&self) -> Option<Bar> {
+        if self.len() == 0 {
+            return None;
         }
-        Ok(frame)
+        self.get(self.len() - 1)
     }
 
-    /// 从 JSON 批量导入 (带字符串字段支持)
-    pub fn from_json_flexible(json: &str, capacity: usize) -> Result<Self, serde_json::Error> {
-        #[derive(Deserialize)]
-        struct KlineIn {
-            open: serde_json::Value,
-            close: serde_json::Value,
-            high: serde_json::Value,
-            low: serde_json::Value,
-            volume: serde_json::Value,
-            timestamp: i64,
+    /// 获取倒数第n根K线（1为最新）
+    #[inline]
+    pub fn get_from_end(&self, n: usize) -> Option<Bar> {
+        if n == 0 || n > self.len() {
+            return None;
         }
-
-        fn to_f64(v: &serde_json::Value) -> f64 {
-            match v {
-                serde_json::Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
-                serde_json::Value::String(s) => s.parse().unwrap_or(f64::NAN),
-                _ => f64::NAN,
-            }
-        }
-
-        let klines: Vec<KlineIn> = serde_json::from_str(json)?;
-        let mut frame = Self::new(capacity.max(klines.len()));
-
-        for k in &klines {
-            frame.push(&Kline {
-                open: to_f64(&k.open),
-                close: to_f64(&k.close),
-                high: to_f64(&k.high),
-                low: to_f64(&k.low),
-                volume: to_f64(&k.volume),
-                timestamp: k.timestamp,
-                buy: None,
-                sell: None,
-            });
-        }
-        Ok(frame)
+        self.get(self.len() - n)
     }
 
-    /// 当前长度
+    /// 当前K线数量
+    #[inline]
     pub fn len(&self) -> usize {
-        self.open.len()
+        self.timestamp.len()
     }
 
     /// 是否为空
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.timestamp.is_empty()
     }
 
     /// 容量
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// 清空
     pub fn clear(&mut self) {
+        self.timestamp.clear();
         self.open.clear();
-        self.close.clear();
         self.high.clear();
         self.low.clear();
+        self.close.clear();
         self.volume.clear();
-        self.timestamp.clear();
-        self.len = 0;
+    }
+
+    /// 批量加载历史数据
+    pub fn load_history(&mut self, bars: &[Bar]) {
+        for bar in bars {
+            self.append(bar);
+        }
+    }
+
+    /// 获取最新的收盘价
+    #[inline]
+    pub fn last_close(&self) -> Option<f64> {
+        self.close.last().copied()
+    }
+
+    /// 获取最新的时间戳
+    #[inline]
+    pub fn last_timestamp(&self) -> Option<i64> {
+        self.timestamp.last().copied()
+    }
+
+    /// 获取收盘价序列引用（用于指标计算）
+    #[inline]
+    pub fn closes(&self) -> &RingBuffer<f64> {
+        &self.close
+    }
+
+    /// 获取最高价序列引用
+    #[inline]
+    pub fn highs(&self) -> &RingBuffer<f64> {
+        &self.high
+    }
+
+    /// 获取最低价序列引用
+    #[inline]
+    pub fn lows(&self) -> &RingBuffer<f64> {
+        &self.low
+    }
+
+    /// 获取成交量序列引用
+    #[inline]
+    pub fn volumes(&self) -> &RingBuffer<f64> {
+        &self.volume
+    }
+
+    /// 迭代所有K线
+    pub fn iter(&self) -> KlineSeriesIter<'_> {
+        KlineSeriesIter {
+            series: self,
+            current: 0,
+        }
     }
 }
 
-/// 二进制格式头部
-#[repr(C, packed)]
-pub struct BinaryHeader {
-    pub magic: [u8; 4],     // "HQKL"
-    pub version: u8,        // 0x01
-    pub flags: u8,          // 压缩等标志
-    pub columns: u8,        // 列数
-    pub reserved1: u8,
-    pub count: u32,         // 行数
-    pub ts_base: i64,       // 基准时间戳
-    pub reserved2: [u8; 12],
+pub struct KlineSeriesIter<'a> {
+    series: &'a KlineSeries,
+    current: usize,
 }
 
-impl KlineFrame {
-    /// 导出为二进制格式 (高性能)
-    pub fn to_binary(&self) -> Vec<u8> {
-        let count = self.len() as u32;
-        let ts_base = if !self.timestamp.is_empty() {
-            self.timestamp[0]
-        } else {
-            0
-        };
+impl<'a> Iterator for KlineSeriesIter<'a> {
+    type Item = Bar;
 
-        // 计算总大小: header(32) + 5*count*8 (OHLCV) + count*4 (timestamp delta)
-        let size = 32 + (count as usize) * 44;
-        let mut buf = Vec::with_capacity(size);
-
-        // Header
-        buf.extend_from_slice(b"HQKL");
-        buf.push(0x01); // version
-        buf.push(0x00); // flags
-        buf.push(6);    // columns
-        buf.push(0);    // reserved
-        buf.extend_from_slice(&count.to_le_bytes());
-        buf.extend_from_slice(&ts_base.to_le_bytes());
-        buf.extend_from_slice(&[0u8; 12]); // reserved
-
-        // Data columns
-        for v in self.open.iter() {
-            buf.extend_from_slice(&v.to_le_bytes());
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current >= self.series.len() {
+            return None;
         }
-        for v in self.close.iter() {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
-        for v in self.high.iter() {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
-        for v in self.low.iter() {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
-        for v in self.volume.iter() {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
-        // Timestamp as delta
-        for &ts in &self.timestamp {
-            let delta = (ts - ts_base) as i32;
-            buf.extend_from_slice(&delta.to_le_bytes());
-        }
-
-        buf
+        let bar = self.series.get(self.current)?;
+        self.current += 1;
+        Some(bar)
     }
 
-    /// 从二进制格式导入
-    pub fn from_binary(data: &[u8]) -> Result<Self, &'static str> {
-        if data.len() < 32 {
-            return Err("Data too short");
-        }
-        if &data[0..4] != b"HQKL" {
-            return Err("Invalid magic");
-        }
-
-        let count = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
-        let ts_base = i64::from_le_bytes([
-            data[12], data[13], data[14], data[15],
-            data[16], data[17], data[18], data[19],
-        ]);
-
-        let expected_size = 32 + count * 44;
-        if data.len() < expected_size {
-            return Err("Data size mismatch");
-        }
-
-        let mut frame = Self::new(count);
-        let mut offset = 32;
-
-        // 读取各列
-        let read_f64_column = |data: &[u8], offset: &mut usize, count: usize| -> Vec<f64> {
-            let mut col = Vec::with_capacity(count);
-            for _ in 0..count {
-                let bytes: [u8; 8] = data[*offset..*offset + 8].try_into().unwrap();
-                col.push(f64::from_le_bytes(bytes));
-                *offset += 8;
-            }
-            col
-        };
-
-        let opens = read_f64_column(data, &mut offset, count);
-        let closes = read_f64_column(data, &mut offset, count);
-        let highs = read_f64_column(data, &mut offset, count);
-        let lows = read_f64_column(data, &mut offset, count);
-        let volumes = read_f64_column(data, &mut offset, count);
-
-        // Timestamps
-        for i in 0..count {
-            let delta_bytes: [u8; 4] = data[offset..offset + 4].try_into().unwrap();
-            let delta = i32::from_le_bytes(delta_bytes);
-            frame.timestamp.push(ts_base + delta as i64);
-            offset += 4;
-
-            frame.open.push(opens[i]);
-            frame.close.push(closes[i]);
-            frame.high.push(highs[i]);
-            frame.low.push(lows[i]);
-            frame.volume.push(volumes[i]);
-        }
-        frame.len = count;
-
-        Ok(frame)
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.series.len() - self.current;
+        (remaining, Some(remaining))
     }
 }
+
+impl<'a> ExactSizeIterator for KlineSeriesIter<'a> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_kline_frame() {
-        let mut frame = KlineFrame::new(100);
-        frame.push(&Kline::new(100.0, 102.0, 103.0, 99.0, 1000.0, 1700000000));
-        frame.push(&Kline::new(102.0, 105.0, 106.0, 101.0, 1200.0, 1700000060));
-
-        assert_eq!(frame.len(), 2);
-        assert_eq!(frame.close.last(), 105.0);
+    fn create_test_bars() -> Vec<Bar> {
+        vec![
+            Bar::new(1000, 100.0, 105.0, 99.0, 104.0, 1000.0),
+            Bar::new(2000, 104.0, 108.0, 103.0, 107.0, 1200.0),
+            Bar::new(3000, 107.0, 110.0, 106.0, 109.0, 1100.0),
+            Bar::new(4000, 109.0, 112.0, 108.0, 111.0, 1300.0),
+            Bar::new(5000, 111.0, 113.0, 109.0, 110.0, 900.0),
+        ]
     }
 
     #[test]
-    fn test_binary_roundtrip() {
-        let mut frame = KlineFrame::new(100);
-        frame.push(&Kline::new(100.0, 102.0, 103.0, 99.0, 1000.0, 1700000000));
-        frame.push(&Kline::new(102.0, 105.0, 106.0, 101.0, 1200.0, 1700000060));
+    fn test_kline_series_basic() {
+        let mut series = KlineSeries::new(10);
+        let bars = create_test_bars();
 
-        let binary = frame.to_binary();
-        let restored = KlineFrame::from_binary(&binary).unwrap();
+        for bar in &bars {
+            series.append(bar);
+        }
 
-        assert_eq!(restored.len(), 2);
-        assert_eq!(restored.close.get(0), 102.0);
-        assert_eq!(restored.close.get(1), 105.0);
+        assert_eq!(series.len(), 5);
+        assert_eq!(series.last_close(), Some(110.0));
+        assert_eq!(series.last_timestamp(), Some(5000));
     }
 
     #[test]
-    fn test_json_import() {
-        let json = r#"[
-            {"open": 100, "close": 102, "high": 103, "low": 99, "volume": 1000, "timestamp": 1700000000},
-            {"open": "102.5", "close": "105.5", "high": "106", "low": "101", "volume": "1200", "timestamp": 1700000060}
-        ]"#;
+    fn test_kline_series_get() {
+        let mut series = KlineSeries::new(10);
+        let bars = create_test_bars();
+        series.load_history(&bars);
 
-        let frame = KlineFrame::from_json_flexible(json, 100).unwrap();
-        assert_eq!(frame.len(), 2);
-        assert_eq!(frame.close.get(1), 105.5);
+        let bar = series.get(0).unwrap();
+        assert_eq!(bar.timestamp, 1000);
+        assert_eq!(bar.close, 104.0);
+
+        let last = series.last().unwrap();
+        assert_eq!(last.timestamp, 5000);
+        assert_eq!(last.close, 110.0);
+    }
+
+    #[test]
+    fn test_kline_series_update_last() {
+        let mut series = KlineSeries::new(10);
+        let bars = create_test_bars();
+        series.load_history(&bars);
+
+        // 模拟实时更新最后一根K线
+        let updated_bar = Bar::new(5000, 111.0, 115.0, 109.0, 114.0, 1500.0);
+        series.update_last(&updated_bar);
+
+        let last = series.last().unwrap();
+        assert_eq!(last.high, 115.0);
+        assert_eq!(last.close, 114.0);
+        assert_eq!(last.volume, 1500.0);
+        assert_eq!(series.len(), 5); // 数量不变
+    }
+
+    #[test]
+    fn test_kline_series_overflow() {
+        let mut series = KlineSeries::new(3);
+        let bars = create_test_bars();
+
+        for bar in &bars {
+            series.append(bar);
+        }
+
+        assert_eq!(series.len(), 3);
+        // 最旧的两根被覆盖，剩下 3000, 4000, 5000
+        assert_eq!(series.get(0).unwrap().timestamp, 3000);
+        assert_eq!(series.get(2).unwrap().timestamp, 5000);
+    }
+
+    #[test]
+    fn test_kline_series_iter() {
+        let mut series = KlineSeries::new(10);
+        let bars = create_test_bars();
+        series.load_history(&bars);
+
+        let timestamps: Vec<i64> = series.iter().map(|b| b.timestamp).collect();
+        assert_eq!(timestamps, vec![1000, 2000, 3000, 4000, 5000]);
+    }
+
+    #[test]
+    fn test_kline_series_get_from_end() {
+        let mut series = KlineSeries::new(10);
+        let bars = create_test_bars();
+        series.load_history(&bars);
+
+        assert_eq!(series.get_from_end(1).unwrap().timestamp, 5000);
+        assert_eq!(series.get_from_end(2).unwrap().timestamp, 4000);
+        assert_eq!(series.get_from_end(5).unwrap().timestamp, 1000);
+        assert!(series.get_from_end(6).is_none());
+    }
+
+    #[test]
+    fn test_bar_merge() {
+        let mut bar1 = Bar::new(1000, 100.0, 105.0, 99.0, 104.0, 1000.0);
+        let bar2 = Bar::new(2000, 104.0, 108.0, 103.0, 107.0, 1200.0);
+
+        bar1.merge(&bar2);
+
+        assert_eq!(bar1.timestamp, 1000); // 保持不变
+        assert_eq!(bar1.open, 100.0);     // 保持不变
+        assert_eq!(bar1.high, 108.0);     // 取最高
+        assert_eq!(bar1.low, 99.0);       // 取最低
+        assert_eq!(bar1.close, 107.0);    // 取最新
+        assert_eq!(bar1.volume, 2200.0);  // 累加
     }
 }

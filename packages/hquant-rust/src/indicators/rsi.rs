@@ -1,134 +1,202 @@
-//! RSI (相对强弱指标)
-//!
-//! 使用指数移动平均计算，O(1) 复杂度
+/// 相对强弱指数 (RSI)
+/// RSI = 100 - 100 / (1 + RS)
+/// RS = 平均涨幅 / 平均跌幅
 
-use crate::Kline;
-use crate::common::RingBuffer;
-use super::Indicator;
+use crate::common::F64RingBuffer;
+use crate::kline::Bar;
+use super::{Indicator, IndicatorValue, PriceType};
 
-/// RSI 指标
 #[derive(Debug)]
 pub struct RSI {
+    name: String,
     period: usize,
-    prev_close: Option<f64>,
+    price_type: PriceType,
+    values: F64RingBuffer,
+    // 使用 Wilder 平滑法
     avg_gain: f64,
     avg_loss: f64,
+    prev_price: f64,
     count: usize,
-    result: RingBuffer,
+    last_timestamp: i64,
+    // 用于初始化阶段
+    gains: Vec<f64>,
+    losses: Vec<f64>,
 }
 
 impl RSI {
-    /// 创建 RSI 指标
-    ///
-    /// - period: 周期 (通常 14)
-    /// - max_history: 结果历史长度
-    pub fn new(period: usize, max_history: usize) -> Self {
+    pub fn new(period: usize) -> Self {
+        Self::with_price_type(period, PriceType::Close)
+    }
+
+    pub fn with_price_type(period: usize, price_type: PriceType) -> Self {
         Self {
+            name: format!("RSI_{}", period),
             period,
-            prev_close: None,
+            price_type,
+            values: F64RingBuffer::new(period * 2),
             avg_gain: 0.0,
             avg_loss: 0.0,
+            prev_price: 0.0,
             count: 0,
-            result: RingBuffer::new(max_history),
+            last_timestamp: 0,
+            gains: Vec::with_capacity(period),
+            losses: Vec::with_capacity(period),
         }
     }
 
-    /// 添加数值
-    pub fn add_value(&mut self, close: f64) -> f64 {
-        let rsi = match self.prev_close {
-            None => {
-                self.prev_close = Some(close);
-                f64::NAN
+    fn calculate_rsi(&self) -> f64 {
+        if self.avg_loss == 0.0 {
+            if self.avg_gain == 0.0 {
+                return 50.0; // 无变化
             }
-            Some(prev) => {
-                let change = close - prev;
-                let gain = if change > 0.0 { change } else { 0.0 };
-                let loss = if change < 0.0 { -change } else { 0.0 };
-
-                self.count += 1;
-
-                if self.count <= self.period {
-                    // 初始阶段: 累计平均
-                    self.avg_gain = (self.avg_gain * (self.count - 1) as f64 + gain) / self.count as f64;
-                    self.avg_loss = (self.avg_loss * (self.count - 1) as f64 + loss) / self.count as f64;
-                } else {
-                    // 指数移动平均
-                    let alpha = 1.0 / self.period as f64;
-                    self.avg_gain = self.avg_gain * (1.0 - alpha) + gain * alpha;
-                    self.avg_loss = self.avg_loss * (1.0 - alpha) + loss * alpha;
-                }
-
-                self.prev_close = Some(close);
-
-                // 计算 RSI
-                if self.count >= self.period {
-                    if self.avg_loss == 0.0 {
-                        100.0
-                    } else {
-                        let rs = self.avg_gain / self.avg_loss;
-                        100.0 - 100.0 / (1.0 + rs)
-                    }
-                } else {
-                    f64::NAN
-                }
-            }
-        };
-
-        self.result.push(rsi);
-        rsi
-    }
-
-    /// 更新最后一个值
-    pub fn update_last_value(&mut self, close: f64) -> f64 {
-        // RSI 使用指数平均，更新最后值需要回退状态
-        // 简化实现: 重新计算最后一个
-        if self.count == 0 {
-            return f64::NAN;
+            return 100.0; // 全涨
         }
-
-        // 注意: 这里简化处理，实际上应该保存更多状态才能精确回退
-        // 对于实时更新场景，误差可接受
-        if let Some(prev) = self.prev_close {
-            // 假设前一个 close 没变，只是当前值变了
-            let change = close - prev;
-            let gain = if change > 0.0 { change } else { 0.0 };
-            let loss = if change < 0.0 { -change } else { 0.0 };
-
-            // 用新值重新计算当前 RSI (近似)
-            let alpha = 1.0 / self.period as f64;
-            let new_avg_gain = self.avg_gain * (1.0 - alpha) + gain * alpha;
-            let new_avg_loss = self.avg_loss * (1.0 - alpha) + loss * alpha;
-
-            let rsi = if new_avg_loss == 0.0 {
-                100.0
-            } else {
-                let rs = new_avg_gain / new_avg_loss;
-                100.0 - 100.0 / (1.0 + rs)
-            };
-
-            self.result.update_last(rsi);
-            rsi
-        } else {
-            f64::NAN
-        }
+        let rs = self.avg_gain / self.avg_loss;
+        100.0 - 100.0 / (1.0 + rs)
     }
 }
 
 impl Indicator for RSI {
-    fn add(&mut self, kline: &Kline) {
-        self.add_value(kline.close);
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    fn update_last(&mut self, kline: &Kline) {
-        self.update_last_value(kline.close);
+    fn min_periods(&self) -> usize {
+        self.period + 1
     }
 
-    fn get_value(&self, index: i32) -> f64 {
-        self.result.get(index)
+    fn push(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.count += 1;
+        self.last_timestamp = bar.timestamp;
+
+        if self.count == 1 {
+            self.prev_price = price;
+            return;
+        }
+
+        let change = price - self.prev_price;
+        let gain = change.max(0.0);
+        let loss = (-change).max(0.0);
+
+        if self.count <= self.period + 1 {
+            // 初始化阶段，收集数据
+            self.gains.push(gain);
+            self.losses.push(loss);
+
+            if self.count == self.period + 1 {
+                // 计算第一个平均值
+                self.avg_gain = self.gains.iter().sum::<f64>() / self.period as f64;
+                self.avg_loss = self.losses.iter().sum::<f64>() / self.period as f64;
+                let rsi = self.calculate_rsi();
+                self.values.push(rsi);
+            }
+        } else {
+            // 使用 Wilder 平滑法更新
+            self.avg_gain = (self.avg_gain * (self.period - 1) as f64 + gain) / self.period as f64;
+            self.avg_loss = (self.avg_loss * (self.period - 1) as f64 + loss) / self.period as f64;
+            let rsi = self.calculate_rsi();
+            self.values.push(rsi);
+        }
+
+        self.prev_price = price;
+    }
+
+    fn update_last(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.last_timestamp = bar.timestamp;
+
+        if self.count < 2 {
+            self.prev_price = price;
+            return;
+        }
+
+        if self.count <= self.period + 1 {
+            // 初始化阶段
+            if self.gains.len() > 1 {
+                // 回退到上一个状态重新计算
+                let last_gain = self.gains.pop().unwrap();
+                let last_loss = self.losses.pop().unwrap();
+
+                let change = price - self.prev_price;
+                let gain = change.max(0.0);
+                let loss = (-change).max(0.0);
+
+                self.gains.push(gain);
+                self.losses.push(loss);
+
+                if self.count == self.period + 1 {
+                    self.avg_gain = self.gains.iter().sum::<f64>() / self.period as f64;
+                    self.avg_loss = self.losses.iter().sum::<f64>() / self.period as f64;
+                    let rsi = self.calculate_rsi();
+                    self.values.update_last(rsi);
+                }
+                // 恢复用于下次更新
+                self.gains.pop();
+                self.gains.push(last_gain);
+                self.losses.pop();
+                self.losses.push(last_loss);
+            }
+        } else {
+            // 这里简化处理：重新计算当前的变化
+            let change = price - self.prev_price;
+            let gain = change.max(0.0);
+            let loss = (-change).max(0.0);
+
+            // 近似重新计算
+            let temp_avg_gain = (self.avg_gain * self.period as f64 - self.avg_gain + gain)
+                / self.period as f64;
+            let temp_avg_loss = (self.avg_loss * self.period as f64 - self.avg_loss + loss)
+                / self.period as f64;
+
+            let rs = if temp_avg_loss == 0.0 {
+                if temp_avg_gain == 0.0 {
+                    1.0
+                } else {
+                    f64::MAX
+                }
+            } else {
+                temp_avg_gain / temp_avg_loss
+            };
+
+            let rsi = 100.0 - 100.0 / (1.0 + rs);
+            self.values.update_last(rsi);
+        }
+    }
+
+    fn value(&self) -> Option<f64> {
+        self.values.last()
+    }
+
+    fn result(&self) -> Option<IndicatorValue> {
+        self.value().map(|v| IndicatorValue::new(v, self.last_timestamp))
+    }
+
+    fn is_ready(&self) -> bool {
+        self.count > self.period
+    }
+
+    fn get(&self, index: usize) -> Option<f64> {
+        self.values.get(index)
+    }
+
+    fn get_from_end(&self, n: usize) -> Option<f64> {
+        self.values.get_from_end(n)
     }
 
     fn len(&self) -> usize {
-        self.result.len()
+        self.values.len()
+    }
+
+    fn reset(&mut self) {
+        self.values.clear();
+        self.avg_gain = 0.0;
+        self.avg_loss = 0.0;
+        self.prev_price = 0.0;
+        self.count = 0;
+        self.last_timestamp = 0;
+        self.gains.clear();
+        self.losses.clear();
     }
 }
 
@@ -136,40 +204,77 @@ impl Indicator for RSI {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_rsi_calculation() {
-        let mut rsi = RSI::new(14, 100);
-
-        // 模拟上涨行情
-        let prices = vec![
-            44.0, 44.34, 44.09, 43.61, 44.33, 44.83, 45.10, 45.42,
-            45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00,
-        ];
-
-        for p in prices {
-            rsi.add_value(p);
-        }
-
-        let value = rsi.get_value(-1);
-        // RSI 应该在 0-100 之间
-        assert!(value >= 0.0 && value <= 100.0);
+    fn create_bars(prices: &[f64]) -> Vec<Bar> {
+        prices.iter().enumerate().map(|(i, &p)| {
+            Bar::new(i as i64 * 1000, p, p + 1.0, p - 1.0, p, 100.0)
+        }).collect()
     }
 
     #[test]
-    fn test_rsi_overbought_oversold() {
-        let mut rsi = RSI::new(5, 100);
+    fn test_rsi_basic() {
+        let mut rsi = RSI::new(14);
+        // 创建一个上涨趋势
+        let prices: Vec<f64> = (0..20).map(|i| 100.0 + i as f64).collect();
+        let bars = create_bars(&prices);
 
-        // 持续上涨 -> RSI > 70
-        for i in 0..10 {
-            rsi.add_value(100.0 + i as f64 * 2.0);
+        for bar in &bars {
+            rsi.push(bar);
         }
-        assert!(rsi.get_value(-1) > 70.0);
 
-        // 持续下跌 -> RSI < 30
-        let mut rsi2 = RSI::new(5, 100);
-        for i in 0..10 {
-            rsi2.add_value(100.0 - i as f64 * 2.0);
+        assert!(rsi.is_ready());
+        // 持续上涨，RSI 应该接近 100
+        assert!(rsi.value().unwrap() > 90.0);
+    }
+
+    #[test]
+    fn test_rsi_downtrend() {
+        let mut rsi = RSI::new(14);
+        // 创建一个下跌趋势
+        let prices: Vec<f64> = (0..20).map(|i| 200.0 - i as f64).collect();
+        let bars = create_bars(&prices);
+
+        for bar in &bars {
+            rsi.push(bar);
         }
-        assert!(rsi2.get_value(-1) < 30.0);
+
+        assert!(rsi.is_ready());
+        // 持续下跌，RSI 应该接近 0
+        assert!(rsi.value().unwrap() < 10.0);
+    }
+
+    #[test]
+    fn test_rsi_range() {
+        let mut rsi = RSI::new(14);
+        // 波动行情
+        let mut prices = Vec::new();
+        for i in 0..30 {
+            if i % 2 == 0 {
+                prices.push(100.0 + (i as f64));
+            } else {
+                prices.push(100.0 - (i as f64) * 0.5);
+            }
+        }
+        let bars = create_bars(&prices);
+
+        for bar in &bars {
+            rsi.push(bar);
+        }
+
+        assert!(rsi.is_ready());
+        // RSI 应该在 0-100 之间
+        let val = rsi.value().unwrap();
+        assert!(val >= 0.0 && val <= 100.0);
+    }
+
+    #[test]
+    fn test_rsi_not_ready() {
+        let mut rsi = RSI::new(14);
+        let bars = create_bars(&[100.0, 101.0, 102.0]);
+
+        for bar in &bars {
+            rsi.push(bar);
+        }
+
+        assert!(!rsi.is_ready());
     }
 }

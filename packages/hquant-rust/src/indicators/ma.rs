@@ -1,118 +1,184 @@
-//! 移动平均线指标
-//!
-//! 优化: O(1) 增量计算，使用 running_sum
+/// 移动平均线指标 (MA)
+/// 支持 SMA, EMA, WMA
 
-use crate::Kline;
-use crate::common::RingBuffer;
-use super::Indicator;
+use crate::common::F64RingBuffer;
+use crate::kline::Bar;
+use super::{Indicator, IndicatorValue, PriceType};
 
-/// 移动平均线
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MAType {
+    /// 简单移动平均
+    SMA,
+    /// 指数移动平均
+    EMA,
+    /// 加权移动平均
+    WMA,
+}
+
 #[derive(Debug)]
 pub struct MA {
-    buffer: RingBuffer,   // 滑动窗口
-    result: RingBuffer,   // 历史结果
+    name: String,
     period: usize,
-    key: KlineField,
-}
-
-/// K线字段选择
-#[derive(Debug, Clone, Copy)]
-pub enum KlineField {
-    Open,
-    Close,
-    High,
-    Low,
-    Volume,
-}
-
-impl Default for KlineField {
-    fn default() -> Self {
-        KlineField::Close
-    }
+    ma_type: MAType,
+    price_type: PriceType,
+    values: F64RingBuffer,
+    // EMA 专用
+    ema_value: f64,
+    ema_multiplier: f64,
+    // WMA 专用
+    wma_divisor: f64,
+    // 输入数据缓存
+    input_buffer: F64RingBuffer,
+    count: usize,
+    last_timestamp: i64,
 }
 
 impl MA {
-    /// 创建 MA 指标
-    ///
-    /// - period: 周期
-    /// - max_history: 结果历史长度
-    /// - key: 使用哪个字段计算
-    pub fn new(period: usize, max_history: usize, key: KlineField) -> Self {
+    pub fn new(period: usize, ma_type: MAType) -> Self {
+        Self::with_price_type(period, ma_type, PriceType::Close)
+    }
+
+    pub fn with_price_type(period: usize, ma_type: MAType, price_type: PriceType) -> Self {
+        let ema_multiplier = 2.0 / (period as f64 + 1.0);
+        let wma_divisor = (period * (period + 1) / 2) as f64;
+
         Self {
-            buffer: RingBuffer::new(period),
-            result: RingBuffer::new(max_history),
+            name: format!("{}_{}", match ma_type {
+                MAType::SMA => "SMA",
+                MAType::EMA => "EMA",
+                MAType::WMA => "WMA",
+            }, period),
             period,
-            key,
+            ma_type,
+            price_type,
+            values: F64RingBuffer::new(period * 2),
+            ema_value: 0.0,
+            ema_multiplier,
+            wma_divisor,
+            input_buffer: F64RingBuffer::new(period),
+            count: 0,
+            last_timestamp: 0,
         }
     }
 
-    /// 使用 close 价格的 MA
-    pub fn with_close(period: usize, max_history: usize) -> Self {
-        Self::new(period, max_history, KlineField::Close)
+    pub fn sma(period: usize) -> Self {
+        Self::new(period, MAType::SMA)
     }
 
-    /// 直接添加数值
-    pub fn add_value(&mut self, value: f64) -> f64 {
-        self.buffer.push(value);
-
-        let ma = if self.buffer.len() >= self.period {
-            // O(1): 使用 running_sum
-            self.buffer.sum() / self.period as f64
-        } else {
-            f64::NAN
-        };
-
-        self.result.push(ma);
-        ma
+    pub fn ema(period: usize) -> Self {
+        Self::new(period, MAType::EMA)
     }
 
-    /// 更新最后一个值
-    pub fn update_last_value(&mut self, value: f64) -> f64 {
-        self.buffer.update_last(value);
-
-        let ma = if self.buffer.len() >= self.period {
-            self.buffer.sum() / self.period as f64
-        } else {
-            f64::NAN
-        };
-
-        self.result.update_last(ma);
-        ma
+    pub fn wma(period: usize) -> Self {
+        Self::new(period, MAType::WMA)
     }
 
-    fn extract_value(&self, kline: &Kline) -> f64 {
-        match self.key {
-            KlineField::Open => kline.open,
-            KlineField::Close => kline.close,
-            KlineField::High => kline.high,
-            KlineField::Low => kline.low,
-            KlineField::Volume => kline.volume,
+    fn calculate_sma(&self) -> f64 {
+        self.input_buffer.mean()
+    }
+
+    fn calculate_wma(&self) -> f64 {
+        let mut sum = 0.0;
+        let len = self.input_buffer.len();
+        for i in 0..len {
+            if let Some(v) = self.input_buffer.get(i) {
+                sum += v * (i + 1) as f64;
+            }
         }
+        sum / self.wma_divisor
     }
 
-    /// 获取周期
-    pub fn period(&self) -> usize {
-        self.period
+    fn compute(&mut self, price: f64) -> f64 {
+        match self.ma_type {
+            MAType::SMA => self.calculate_sma(),
+            MAType::EMA => {
+                if self.count == self.period {
+                    // 第一个 EMA 值使用 SMA
+                    self.ema_value = self.calculate_sma();
+                } else if self.count > self.period {
+                    self.ema_value = (price - self.ema_value) * self.ema_multiplier + self.ema_value;
+                }
+                self.ema_value
+            }
+            MAType::WMA => self.calculate_wma(),
+        }
     }
 }
 
 impl Indicator for MA {
-    fn add(&mut self, kline: &Kline) {
-        let value = self.extract_value(kline);
-        self.add_value(value);
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    fn update_last(&mut self, kline: &Kline) {
-        let value = self.extract_value(kline);
-        self.update_last_value(value);
+    fn min_periods(&self) -> usize {
+        self.period
     }
 
-    fn get_value(&self, index: i32) -> f64 {
-        self.result.get(index)
+    fn push(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.input_buffer.push(price);
+        self.count += 1;
+        self.last_timestamp = bar.timestamp;
+
+        if self.count >= self.period {
+            let ma_value = self.compute(price);
+            self.values.push(ma_value);
+        }
+    }
+
+    fn update_last(&mut self, bar: &Bar) {
+        let price = self.price_type.extract(bar);
+        self.input_buffer.update_last(price);
+        self.last_timestamp = bar.timestamp;
+
+        if self.count >= self.period {
+            // 对于 EMA，需要重新计算
+            let ma_value = match self.ma_type {
+                MAType::SMA => self.calculate_sma(),
+                MAType::EMA => {
+                    // 使用前一个 EMA 值重新计算
+                    if let Some(prev_ema) = self.values.get_from_end(2) {
+                        (price - prev_ema) * self.ema_multiplier + prev_ema
+                    } else {
+                        self.calculate_sma()
+                    }
+                }
+                MAType::WMA => self.calculate_wma(),
+            };
+            self.values.update_last(ma_value);
+        }
+    }
+
+    fn value(&self) -> Option<f64> {
+        self.values.last()
+    }
+
+    fn result(&self) -> Option<IndicatorValue> {
+        self.value().map(|v| IndicatorValue::new(v, self.last_timestamp))
+    }
+
+    fn is_ready(&self) -> bool {
+        self.count >= self.period
+    }
+
+    fn get(&self, index: usize) -> Option<f64> {
+        self.values.get(index)
+    }
+
+    fn get_from_end(&self, n: usize) -> Option<f64> {
+        self.values.get_from_end(n)
     }
 
     fn len(&self) -> usize {
-        self.result.len()
+        self.values.len()
+    }
+
+    fn reset(&mut self) {
+        self.values.clear();
+        self.input_buffer.clear();
+        self.ema_value = 0.0;
+        self.count = 0;
+        self.last_timestamp = 0;
     }
 }
 
@@ -120,32 +186,86 @@ impl Indicator for MA {
 mod tests {
     use super::*;
 
+    fn create_bars(prices: &[f64]) -> Vec<Bar> {
+        prices.iter().enumerate().map(|(i, &p)| {
+            Bar::new(i as i64 * 1000, p, p + 1.0, p - 1.0, p, 100.0)
+        }).collect()
+    }
+
     #[test]
-    fn test_ma_calculation() {
-        let mut ma = MA::with_close(3, 100);
+    fn test_sma() {
+        let mut ma = MA::sma(3);
+        let bars = create_bars(&[1.0, 2.0, 3.0, 4.0, 5.0]);
 
-        // 添加数据
-        ma.add_value(10.0);
-        ma.add_value(20.0);
-        assert!(ma.get_value(-1).is_nan()); // 不足周期
+        for bar in &bars {
+            ma.push(bar);
+        }
 
-        ma.add_value(30.0);
-        assert_eq!(ma.get_value(-1), 20.0); // (10+20+30)/3
+        assert!(ma.is_ready());
+        // SMA(3) of [3, 4, 5] = 4.0
+        assert!((ma.value().unwrap() - 4.0).abs() < 1e-10);
+    }
 
-        ma.add_value(40.0);
-        assert_eq!(ma.get_value(-1), 30.0); // (20+30+40)/3
+    #[test]
+    fn test_ema() {
+        let mut ma = MA::ema(3);
+        let bars = create_bars(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+
+        for bar in &bars {
+            ma.push(bar);
+        }
+
+        assert!(ma.is_ready());
+        // 第一个 EMA = SMA(3) = 2.0
+        // multiplier = 2/(3+1) = 0.5
+        // EMA[3] = (4 - 2) * 0.5 + 2 = 3.0
+        // EMA[4] = (5 - 3) * 0.5 + 3 = 4.0
+        assert!((ma.value().unwrap() - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wma() {
+        let mut ma = MA::wma(3);
+        let bars = create_bars(&[1.0, 2.0, 3.0]);
+
+        for bar in &bars {
+            ma.push(bar);
+        }
+
+        // WMA(3) = (1*1 + 2*2 + 3*3) / (1+2+3) = 14/6 ≈ 2.333
+        assert!((ma.value().unwrap() - 14.0 / 6.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_ma_update_last() {
-        let mut ma = MA::with_close(3, 100);
+        let mut ma = MA::sma(3);
+        let bars = create_bars(&[1.0, 2.0, 3.0]);
 
-        ma.add_value(10.0);
-        ma.add_value(20.0);
-        ma.add_value(30.0);
-        assert_eq!(ma.get_value(-1), 20.0);
+        for bar in &bars {
+            ma.push(bar);
+        }
 
-        ma.update_last_value(60.0); // 30 -> 60
-        assert_eq!(ma.get_value(-1), 30.0); // (10+20+60)/3
+        // SMA = 2.0
+        assert!((ma.value().unwrap() - 2.0).abs() < 1e-10);
+
+        // 更新最后一根
+        let updated = Bar::new(2000, 6.0, 7.0, 5.0, 6.0, 100.0);
+        ma.update_last(&updated);
+
+        // SMA = (1 + 2 + 6) / 3 = 3.0
+        assert!((ma.value().unwrap() - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ma_not_ready() {
+        let mut ma = MA::sma(5);
+        let bars = create_bars(&[1.0, 2.0, 3.0]);
+
+        for bar in &bars {
+            ma.push(bar);
+        }
+
+        assert!(!ma.is_ready());
+        assert!(ma.value().is_none());
     }
 }

@@ -1,109 +1,143 @@
-//! ATR (平均真实波幅)
-//!
-//! True Range = max(high-low, |high-prev_close|, |low-prev_close|)
-//! ATR = EMA(TR, period)
+/// 平均真实波幅 (ATR - Average True Range)
+/// TR = max(high - low, |high - prev_close|, |low - prev_close|)
+/// ATR = EMA(TR, period) 或 SMA(TR, period)
 
-use crate::Kline;
-use crate::common::RingBuffer;
-use super::Indicator;
+use crate::common::F64RingBuffer;
+use crate::kline::Bar;
+use super::{Indicator, IndicatorValue};
 
-/// ATR 指标
 #[derive(Debug)]
 pub struct ATR {
+    name: String,
     period: usize,
-    prev_close: Option<f64>,
-    atr: f64,
+    values: F64RingBuffer,
+    tr_values: F64RingBuffer,
+    atr_value: f64,
+    prev_close: f64,
     count: usize,
-    result: RingBuffer,
+    last_timestamp: i64,
 }
 
 impl ATR {
-    /// 创建 ATR 指标
-    ///
-    /// - period: 周期 (通常 14)
-    /// - max_history: 结果历史长度
-    pub fn new(period: usize, max_history: usize) -> Self {
+    pub fn new(period: usize) -> Self {
         Self {
+            name: format!("ATR_{}", period),
             period,
-            prev_close: None,
-            atr: 0.0,
+            values: F64RingBuffer::new(period * 2),
+            tr_values: F64RingBuffer::new(period),
+            atr_value: 0.0,
+            prev_close: 0.0,
             count: 0,
-            result: RingBuffer::new(max_history),
+            last_timestamp: 0,
         }
     }
 
-    /// 计算 True Range
-    fn true_range(&self, high: f64, low: f64, prev_close: f64) -> f64 {
-        let hl = high - low;
-        let hc = (high - prev_close).abs();
-        let lc = (low - prev_close).abs();
+    fn calculate_tr(&self, bar: &Bar, prev_close: f64) -> f64 {
+        let hl = bar.high - bar.low;
+        let hc = (bar.high - prev_close).abs();
+        let lc = (bar.low - prev_close).abs();
         hl.max(hc).max(lc)
-    }
-
-    /// 添加 K线
-    pub fn add_kline(&mut self, high: f64, low: f64, close: f64) -> f64 {
-        let tr = match self.prev_close {
-            None => high - low,
-            Some(pc) => self.true_range(high, low, pc),
-        };
-
-        self.count += 1;
-
-        if self.count == 1 {
-            self.atr = tr;
-        } else {
-            // Wilder's smoothing (等效于 EMA with alpha = 1/period)
-            self.atr = (self.atr * (self.period - 1) as f64 + tr) / self.period as f64;
-        }
-
-        self.prev_close = Some(close);
-
-        let value = if self.count >= self.period {
-            self.atr
-        } else {
-            f64::NAN
-        };
-
-        self.result.push(value);
-        value
-    }
-
-    /// 更新最后一个 K线
-    pub fn update_last_kline(&mut self, high: f64, low: f64, close: f64) -> f64 {
-        // 简化: 重新计算 (ATR 对单次更新不太敏感)
-        let tr = match self.prev_close {
-            None => high - low,
-            Some(pc) => self.true_range(high, low, pc),
-        };
-
-        let new_atr = (self.atr * (self.period - 1) as f64 + tr) / self.period as f64;
-
-        let value = if self.count >= self.period {
-            new_atr
-        } else {
-            f64::NAN
-        };
-
-        self.result.update_last(value);
-        value
     }
 }
 
 impl Indicator for ATR {
-    fn add(&mut self, kline: &Kline) {
-        self.add_kline(kline.high, kline.low, kline.close);
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    fn update_last(&mut self, kline: &Kline) {
-        self.update_last_kline(kline.high, kline.low, kline.close);
+    fn min_periods(&self) -> usize {
+        self.period
     }
 
-    fn get_value(&self, index: i32) -> f64 {
-        self.result.get(index)
+    fn push(&mut self, bar: &Bar) {
+        self.count += 1;
+        self.last_timestamp = bar.timestamp;
+
+        if self.count == 1 {
+            // 第一根K线，TR = high - low
+            let tr = bar.high - bar.low;
+            self.tr_values.push(tr);
+            self.prev_close = bar.close;
+            return;
+        }
+
+        let tr = self.calculate_tr(bar, self.prev_close);
+        self.tr_values.push(tr);
+        self.prev_close = bar.close;
+
+        if self.count < self.period {
+            return;
+        }
+
+        if self.count == self.period {
+            // 第一个 ATR 使用 SMA
+            self.atr_value = self.tr_values.mean();
+        } else {
+            // 使用 Wilder 平滑法
+            self.atr_value = (self.atr_value * (self.period - 1) as f64 + tr) / self.period as f64;
+        }
+
+        self.values.push(self.atr_value);
+    }
+
+    fn update_last(&mut self, bar: &Bar) {
+        self.last_timestamp = bar.timestamp;
+
+        if self.count < 2 {
+            let tr = bar.high - bar.low;
+            self.tr_values.update_last(tr);
+            return;
+        }
+
+        // 使用前一根K线的收盘价
+        let prev_close = self.prev_close;
+
+        let tr = self.calculate_tr(bar, prev_close);
+        self.tr_values.update_last(tr);
+
+        if self.count >= self.period {
+            let new_atr = if self.count == self.period {
+                self.tr_values.mean()
+            } else {
+                // 使用前一个 ATR 值
+                let prev_atr = self.values.get_from_end(2).unwrap_or(self.atr_value);
+                (prev_atr * (self.period - 1) as f64 + tr) / self.period as f64
+            };
+            self.values.update_last(new_atr);
+        }
+    }
+
+    fn value(&self) -> Option<f64> {
+        self.values.last()
+    }
+
+    fn result(&self) -> Option<IndicatorValue> {
+        self.value().map(|v| IndicatorValue::new(v, self.last_timestamp))
+    }
+
+    fn is_ready(&self) -> bool {
+        self.count >= self.period
+    }
+
+    fn get(&self, index: usize) -> Option<f64> {
+        self.values.get(index)
+    }
+
+    fn get_from_end(&self, n: usize) -> Option<f64> {
+        self.values.get_from_end(n)
     }
 
     fn len(&self) -> usize {
-        self.result.len()
+        self.values.len()
+    }
+
+    fn reset(&mut self) {
+        self.values.clear();
+        self.tr_values.clear();
+        self.atr_value = 0.0;
+        self.prev_close = 0.0;
+        self.count = 0;
+        self.last_timestamp = 0;
     }
 }
 
@@ -112,44 +146,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_atr_calculation() {
-        let mut atr = ATR::new(5, 100);
+    fn test_atr_basic() {
+        let mut atr = ATR::new(14);
 
-        // 模拟 K 线数据
-        let klines = vec![
-            (102.0, 98.0, 100.0),   // TR = 4
-            (103.0, 99.0, 101.0),   // TR = 4
-            (105.0, 100.0, 104.0),  // TR = 5
-            (106.0, 102.0, 103.0),  // TR = 4
-            (104.0, 100.0, 101.0),  // TR = 4
-        ];
-
-        for (h, l, c) in klines {
-            atr.add_kline(h, l, c);
+        // 创建测试数据
+        for i in 0..20 {
+            let bar = Bar::new(
+                i * 1000,
+                100.0 + i as f64,
+                105.0 + i as f64,
+                98.0 + i as f64,
+                102.0 + i as f64,
+                1000.0,
+            );
+            atr.push(&bar);
         }
 
-        let value = atr.get_value(-1);
-        assert!(!value.is_nan());
-        assert!(value > 0.0);
+        assert!(atr.is_ready());
+        assert!(atr.value().unwrap() > 0.0);
     }
 
     #[test]
     fn test_atr_volatility() {
-        let mut atr_low = ATR::new(5, 100);
-        let mut atr_high = ATR::new(5, 100);
+        let mut atr_low = ATR::new(5);
+        let mut atr_high = ATR::new(5);
 
         // 低波动
         for i in 0..10 {
-            let base = 100.0 + i as f64 * 0.1;
-            atr_low.add_kline(base + 0.5, base - 0.5, base);
+            let bar = Bar::new(i * 1000, 100.0, 101.0, 99.0, 100.0, 1000.0);
+            atr_low.push(&bar);
         }
 
         // 高波动
         for i in 0..10 {
-            let base = 100.0 + i as f64 * 0.1;
-            atr_high.add_kline(base + 5.0, base - 5.0, base);
+            let bar = Bar::new(i * 1000, 100.0, 110.0, 90.0, 100.0, 1000.0);
+            atr_high.push(&bar);
         }
 
-        assert!(atr_high.get_value(-1) > atr_low.get_value(-1));
+        assert!(atr_high.value().unwrap() > atr_low.value().unwrap());
+    }
+
+    #[test]
+    fn test_atr_not_ready() {
+        let mut atr = ATR::new(14);
+
+        for i in 0..5 {
+            let bar = Bar::new(i * 1000, 100.0, 105.0, 98.0, 102.0, 1000.0);
+            atr.push(&bar);
+        }
+
+        assert!(!atr.is_ready());
     }
 }
