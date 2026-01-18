@@ -14,6 +14,12 @@ pub mod indicators;
 pub mod aggregator;
 pub mod strategy;
 pub mod backtest;
+#[cfg(all(feature = "ffi-node", any(feature = "ffi-python", feature = "ffi-go")))]
+compile_error!("ffi-node cannot be built together with ffi-python/ffi-go. Build one FFI target at a time.");
+#[cfg(all(feature = "ffi-python", feature = "ffi-go"))]
+compile_error!("ffi-python cannot be built together with ffi-go. Build one FFI target at a time.");
+#[cfg(any(feature = "ffi-node", feature = "ffi-python", feature = "ffi-go"))]
+pub mod ffi;
 
 pub use common::{RingBuffer, F64RingBuffer};
 pub use kline::{Bar, KlineSeries};

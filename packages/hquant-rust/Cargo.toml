@@ -3,9 +3,22 @@ name = "hquant"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+ffi-node = ["napi", "napi-derive", "napi-build"]
+ffi-python = ["pyo3/extension-module"]
+ffi-go = []
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+napi = { version = "2", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "2", optional = true }
+pyo3 = { version = "0.21", features = ["extension-module"], optional = true }
 
 [dev-dependencies]
+
+[build-dependencies]
+napi-build = { version = "2", optional = true }
+pyo3-build-config = "0.21"

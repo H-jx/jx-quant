@@ -93,7 +93,19 @@ fn main() {
 ```bash
 cargo build
 cargo test
+
+# 构建多语言封装库
+scripts/build-ffi.sh node
+scripts/build-ffi.sh python
+scripts/build-ffi.sh go
+scripts/build-ffi.sh all
 ```
+
+## 多语言绑定
+
+- Node.js (napi-rs)：`cargo build --release --features ffi-node` 生成 `.node` 模块，可在 Node 中 `require('./target/release/libhquant.node')`。
+- Python (PyO3)：`maturin develop --features ffi-python`（或 `pip install . --features ffi-python`）后 `import hquant_py`。
+- Go (cgo)：`cargo build --release --features ffi-go` 生成动态库（如 `libhquant.so` / `libhquant.dylib`），在 Go 中通过 `// #cgo LDFLAGS: -L/path -lhquant` 链接并使用 `import "C"`。
 
 ## 开发提示
 
@@ -117,3 +129,79 @@ pub fn add_my_indicator(&mut self, name: impl Into<String>, period: usize) {
 4) 使用：创建 `QuantEngine`，调用 `add_my_indicator`，通过 `indicator_value("my_indicator")` 或 `indicator_result` 读取。
 
 > 如果指标逻辑简单、仅需访问完整 K 线，可直接用 `DynamicIndicator`：`engine.add_dynamic_indicator("custom", min_periods, |klines| { /* 返回 Some(f64) */ });`
+
+
+
+
+
+› how to use in nodejs, python, go,
+
+
+• Node.js
+
+  - Build: scripts/build-ffi.sh node → target/release/hquant.node.
+  - Use: add relative path to the compiled module.
+
+  ```js
+  const { Engine } = require('./target/release/hquant.node');
+
+    const eng = new Engine(1000);
+    eng.add_ma('ma_fast', 5, 'SMA');
+    eng.append_bar({ timestamp: Date.now(), open:1, high:1.1, low:0.9,
+  close:1.05, volume:1000 });
+    console.log('MA ready?', eng.indicator_ready('ma_fast'));
+    console.log('MA value', eng.indicator_value('ma_fast'));
+  ```
+
+  Python
+
+  - Build: scripts/build-ffi.sh python → target/release/hquant_py.so. Add to
+    PYTHONPATH:
+
+    export PYTHONPATH=$(pwd)/target/release:$PYTHONPATH
+  - Use:
+
+    ```python
+    from hquant_py import PyEngine, PyBar
+
+    eng = PyEngine(1000)
+    eng.add_ma("ma_fast", 5, "SMA")
+    eng.append_bar(PyBar(1, 1.0, 1.1, 0.9, 1.05, 1000.0))
+    print("MA ready?", eng.indicator_ready("ma_fast"))
+    print("MA value", eng.indicator_value("ma_fast"))
+    ```
+
+  Go (cgo)
+
+  - Build: scripts/build-ffi.sh go → target/release/libhquant.dylib (or .so on
+    Linux).
+  - Link and use (example main.go):
+
+    ```go
+    /*
+    #cgo LDFLAGS: -L${SRCDIR}/target/release -lhquant
+    #include <stdint.h>
+
+    typedef struct {
+      int64_t timestamp;
+      double open, high, low, close, volume;
+    } FfiBar;
+
+    extern void* hquant_engine_new(uintptr_t capacity);
+    extern void hquant_engine_free(void* ptr);
+    extern void hquant_engine_append_bar(void* ptr, FfiBar bar);
+    */
+    import "C"
+    import "runtime"
+
+    func main() {
+      eng := C.hquant_engine_new(1000)
+      runtime.SetFinalizer(&eng, func(p *C.void) { C.hquant_engine_free(*p) })
+      bar := C.FfiBar{timestamp: 1, open: 1, high: 1.1, low: 0.9, close: 1.05,
+  volume: 1000}
+      C.hquant_engine_append_bar(eng, bar)
+    }
+    ```
+  - Ensure your target/release is on DYLD_LIBRARY_PATH (macOS) or
+    LD_LIBRARY_PATH (Linux) when running: e.g. export DYLD_LIBRARY_PATH=$(pwd)/
+    target/release:$DYLD_LIBRARY_PATH.
