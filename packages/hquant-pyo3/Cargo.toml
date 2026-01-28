@@ -1,0 +1,15 @@
+[package]
+name = "hquant-pyo3"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "hquant_py_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+hquant-rs = { path = "../hquant-rs" }
+pyo3 = { version = "0.21", features = ["extension-module"] }
+numpy = "0.21"
+

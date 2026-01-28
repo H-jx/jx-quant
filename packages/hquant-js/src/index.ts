@@ -8,11 +8,11 @@ export type Bar = {
   low: number;
   close: number;
   volume: number;
-  buy_volume?: number;
+  buyVolume?: number;
 };
 
 export type Signal = {
-  strategy_id: number;
+  strategyId: number;
   action: "BUY" | "SELL" | "HOLD";
   timestamp: number;
 };
@@ -26,20 +26,20 @@ export type ColumnF64 = {
 
 type Native = {
   HQuant: new (capacity: number) => {
-    add_rsi(period: number): number;
-    add_ema_close(period: number): number;
-    add_strategy(name: string, dsl: string): number;
-    push_bar(bar: Bar): void;
-    update_last_bar(bar: Bar): void;
-    indicator_last(id: number): { kind: number; a: number; b: number; c: number };
-    poll_signals(): Signal[];
-    close_column(): ColumnF64;
+    addRsi(period: number): number;
+    addEmaClose(period: number): number;
+    addStrategy(name: string, dsl: string): number;
+    pushBar(bar: Bar): void;
+    updateLastBar(bar: Bar): void;
+    indicatorLast(id: number): { kind: number; a: number; b: number; c: number };
+    pollSignals(): Signal[];
+    closeColumn(): ColumnF64;
   };
   MultiHQuant: new (capacity: number, periods: string[]) => {
-    feed_bar(bar: Bar): void;
+    feedBar(bar: Bar): void;
     flush(): void;
-    add_multi_strategy(name: string, dsl: string): number;
-    poll_signals(): Signal[];
+    addMultiStrategy(name: string, dsl: string): number;
+    pollSignals(): Signal[];
   };
 };
 
