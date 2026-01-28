@@ -1,0 +1,15 @@
+[package]
+name = "hquant-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "hquant_rs"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+
+[dependencies]
+

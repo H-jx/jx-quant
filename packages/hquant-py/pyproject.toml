@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hquant-py"
+version = "0.0.1"
+description = "Python wrapper for hquant-rs (ctypes, WIP)"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.22"]
+
+[tool.setuptools]
+packages = ["hquant_py"]
+
