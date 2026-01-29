@@ -150,11 +150,55 @@ impl HQuant {
     }
 
     #[napi]
+    pub fn len(&self) -> Result<u32> {
+        let hq = self.inner.lock().map_err(|_| Error::from_reason("lock poisoned"))?;
+        Ok(hq.len() as u32)
+    }
+
+    #[napi]
+    pub fn capacity(&self) -> Result<u32> {
+        let hq = self.inner.lock().map_err(|_| Error::from_reason("lock poisoned"))?;
+        Ok(hq.capacity() as u32)
+    }
+
+    #[napi]
     pub fn close_column(&self, env: Env) -> Result<ColumnF64> {
+        self.f64_column(env, |hq| hq.bars().close().raw_parts())
+    }
+
+    #[napi]
+    pub fn open_column(&self, env: Env) -> Result<ColumnF64> {
+        self.f64_column(env, |hq| hq.bars().open().raw_parts())
+    }
+
+    #[napi]
+    pub fn high_column(&self, env: Env) -> Result<ColumnF64> {
+        self.f64_column(env, |hq| hq.bars().high().raw_parts())
+    }
+
+    #[napi]
+    pub fn low_column(&self, env: Env) -> Result<ColumnF64> {
+        self.f64_column(env, |hq| hq.bars().low().raw_parts())
+    }
+
+    #[napi]
+    pub fn volume_column(&self, env: Env) -> Result<ColumnF64> {
+        self.f64_column(env, |hq| hq.bars().volume().raw_parts())
+    }
+
+    #[napi]
+    pub fn buy_volume_column(&self, env: Env) -> Result<ColumnF64> {
+        self.f64_column(env, |hq| hq.bars().buy_volume().raw_parts())
+    }
+
+    fn f64_column<F>(&self, env: Env, f: F) -> Result<ColumnF64>
+    where
+        F: FnOnce(&CoreHQuant) -> (*const f64, usize, usize, usize),
+    {
         let keep = KeepAlive(self.inner.clone());
         let (ptr, cap, len, head) = {
             let hq = self.inner.lock().map_err(|_| Error::from_reason("lock poisoned"))?;
-            hq.bars().close().raw_parts()
+            f(&hq)
         };
 
         // SAFETY: backing buffer is fixed-capacity Vec<f64> inside the core object.

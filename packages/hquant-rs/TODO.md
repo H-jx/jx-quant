@@ -340,3 +340,9 @@ rust不必写测试，都由nodejs、python封装后测试
 
 python二次封装：packages/hquant-py （空目录）
 nodejs二次封装： packages/hquant-js (已初始化package.json)
+
+## Progress (implemented)
+- `packages/hquant-rs`: SoA ring buffer + indicators (SMA/EMA/RSI/StdDev + Boll/MACD) + HQuant engine + FuturesBacktest + C ABI
+- Multi-period: `period.rs` + `aggregator.rs` + `multi.rs` (cross-period strategy support via `close@4h` etc)
+- Node N-API addon: `packages/hquant-node` (napi-rs, external ArrayBuffer for zero-copy column view)
+- Python: `packages/hquant-pyo3` (PyO3 + numpy zero-copy view) and `packages/hquant-py` (ctypes fallback)

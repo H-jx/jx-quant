@@ -37,3 +37,7 @@ export HQUANT_NATIVE_PATH=$PWD/hquant.node
 ```
 
 JS API loads `process.env.HQUANT_NATIVE_PATH` first.
+
+Convenience script (macOS):
+
+`packages/hquant-node/scripts/dev-build-macos.sh`

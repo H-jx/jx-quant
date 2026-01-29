@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import * as path from "node:path";
 
 export type Bar = {
   timestamp: number;
@@ -33,7 +32,14 @@ type Native = {
     updateLastBar(bar: Bar): void;
     indicatorLast(id: number): { kind: number; a: number; b: number; c: number };
     pollSignals(): Signal[];
+    len(): number;
+    capacity(): number;
     closeColumn(): ColumnF64;
+    openColumn(): ColumnF64;
+    highColumn(): ColumnF64;
+    lowColumn(): ColumnF64;
+    volumeColumn(): ColumnF64;
+    buyVolumeColumn(): ColumnF64;
   };
   MultiHQuant: new (capacity: number, periods: string[]) => {
     feedBar(bar: Bar): void;
@@ -49,12 +55,15 @@ function loadNative(): Native {
   if (explicit) {
     return req(explicit) as Native;
   }
-  // Convention: build `packages/hquant-node` and rename the cdylib to `hquant.node`,
-  // then point HQUANT_NATIVE_PATH to it.
-  //
-  // We keep auto-discovery minimal to avoid brittle platform-specific paths.
-  const guess = path.resolve(process.cwd(), "hquant.node");
-  return req(guess) as Native;
+  throw new Error(
+    [
+      "hquant-js: missing native binding.",
+      "Build `packages/hquant-node` and set `HQUANT_NATIVE_PATH` to the produced .node/.dylib file (renamed to .node).",
+      "Example (macOS):",
+      "  packages/hquant-node/scripts/dev-build-macos.sh",
+      "  export HQUANT_NATIVE_PATH=$PWD/hquant.node",
+    ].join("\n"),
+  );
 }
 
 const native = loadNative();

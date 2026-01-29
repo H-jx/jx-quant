@@ -15,7 +15,7 @@ class Bar:
     low: float
     close: float
     volume: float
-    buy_volume: float = 0.0
+    buy_volume: Optional[float] = 0.0
 
 
 class _BarC(ctypes.Structure):
@@ -138,7 +138,7 @@ class HQuant:
                 low=float(bar.low),
                 close=float(bar.close),
                 volume=float(bar.volume),
-                buy_volume=float(bar.buy_volume),
+                buy_volume=float(0.0 if bar.buy_volume is None else bar.buy_volume),
             ),
         )
 
@@ -152,7 +152,7 @@ class HQuant:
                 low=float(bar.low),
                 close=float(bar.close),
                 volume=float(bar.volume),
-                buy_volume=float(bar.buy_volume),
+                buy_volume=float(0.0 if bar.buy_volume is None else bar.buy_volume),
             ),
         )
 

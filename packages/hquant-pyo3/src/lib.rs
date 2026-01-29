@@ -130,6 +130,14 @@ impl HQuant {
         slf: PyRef<'py, Self>,
         py: Python<'py>,
     ) -> PyResult<(Py<PyArray1<f64>>, usize, usize, usize)> {
+        // The `numpy` Rust crate relies on the Python `numpy` package being importable at runtime.
+        // Import it explicitly to return a Python exception instead of panicking deep in the C-API init.
+        py.import_bound("numpy").map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyImportError, _>(format!(
+                "numpy is required for close_column(): {e}"
+            ))
+        })?;
+
         let (ptr, cap, len, head) = {
             let hq = slf
                 .inner

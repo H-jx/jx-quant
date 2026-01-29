@@ -1,6 +1,9 @@
 # hquant-py (WIP)
 
-Python wrapper for `hquant-rs` via `ctypes`.
+Python wrapper for `hquant-rs`.
+
+- Default: `ctypes` wrapper (`hquant_py/api.py`) for quick local dev.
+- Optional: PyO3 native module (`packages/hquant-pyo3`) for lower overhead + NumPy zero-copy views.
 
 Zero-copy note:
 
@@ -33,3 +36,24 @@ rsi = hq.add_rsi(14)
 hq.push_bar(Bar(ts=0, open=1, high=1, low=1, close=1, volume=1, buy_volume=0))
 print(hq.indicator_last(rsi))
 ```
+
+## PyO3 native module (NumPy required)
+
+Build:
+
+```bash
+cd packages/hquant-pyo3
+cargo build --release
+```
+
+Install NumPy in your Python env (required for `close_column()`):
+
+```bash
+python3 -m pip install numpy
+```
+
+Then make `hquant_py_native` importable (one simple dev approach is to copy/rename the dylib to a Python extension in your working dir).
+
+Convenience script (macOS):
+
+`packages/hquant-pyo3/scripts/dev-build-macos.sh`
