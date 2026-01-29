@@ -10,7 +10,19 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
+ffi-node = ["dep:napi", "dep:napi-derive", "dep:napi-sys", "dep:napi-build"]
+ffi-python = ["dep:pyo3", "dep:numpy"]
 
 [dependencies]
 pest = "2.7"
 pest_derive = "2.7"
+
+# Optional bindings (keep core dependency-light; enable only when building addons).
+napi = { version = "2", default-features = false, features = ["napi8"], optional = true }
+napi-derive = { version = "2", optional = true }
+napi-sys = { version = "2", optional = true }
+pyo3 = { version = "0.21", features = ["extension-module"], optional = true }
+numpy = { version = "0.21", optional = true }
+
+[build-dependencies]
+napi-build = { version = "2", optional = true }
