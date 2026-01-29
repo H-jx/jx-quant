@@ -12,4 +12,5 @@ crate-type = ["rlib", "cdylib"]
 default = []
 
 [dependencies]
-
+pest = "2.7"
+pest_derive = "2.7"

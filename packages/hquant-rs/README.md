@@ -46,6 +46,11 @@ let sigs = mq.poll_signals();
 
 This crate also builds a `cdylib` and exports a minimal C ABI in `hquant_rs::ffi::c`.
 
+FFI notes:
+
+- Functions return `NULL` / `0` on invalid inputs (instead of panicking across the ABI boundary).
+- Strategy DSL strings must be UTF-8.
+
 Key functions:
 
 - `hquant_new` / `hquant_free`
@@ -57,3 +62,7 @@ Key functions:
 
 Ring columns are not always chronologically contiguous. Use `(capacity,len,head)` to reconstruct
 the ordered view (or copy in the wrapper).
+
+## Strategy DSL
+
+The condition expression inside `IF ... THEN ...` is parsed via `pest` grammar in `src/strategy/dsl.pest`.

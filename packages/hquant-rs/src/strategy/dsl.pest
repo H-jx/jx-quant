@@ -1,0 +1,40 @@
+// Condition DSL grammar for `IF <cond> THEN <action>` rules.
+//
+// This grammar parses only the boolean condition expression (the part after `IF` and before `THEN`).
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
+
+condition = { SOI ~ expr ~ EOI }
+
+expr = { or_expr }
+
+or_expr = { and_expr ~ (or_op ~ and_expr)* }
+or_op = { ^"OR" }
+
+and_expr = { unary_expr ~ (and_op ~ unary_expr)* }
+and_op = { ^"AND" }
+
+unary_expr = { not_op* ~ primary }
+not_op = { ^"NOT" | "!" }
+
+primary = { "(" ~ expr ~ ")" | comparison }
+
+comparison = { indicator_call ~ comp_op ~ number }
+comp_op = { "<=" | ">=" | "==" | "!=" | "<" | ">" }
+
+indicator_call = { ident ~ "(" ~ arg_list? ~ ")" }
+arg_list = { arg ~ ("," ~ arg)* }
+arg = _{ kwarg | value }
+kwarg = { ident ~ "=" ~ value }
+value = { series_ref | number }
+
+// Field name may include `buy_volume` and may include a `@<period>` suffix (e.g. `close@4h`).
+series_ref = @{ ident ~ ("@" ~ period_suffix)? }
+
+period_suffix = @{ ASCII_DIGIT+ ~ ( "s" | "m" | "h" | "d" | "w" | "M" ) }
+
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+
+ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+

@@ -58,3 +58,34 @@ class HQuant:
         arr, cap, length, head = self._native.close_column()
         return np.asarray(arr), int(cap), int(length), int(head)
 
+
+class FuturesBacktest:
+    def __init__(
+        self,
+        *,
+        initial_margin: float,
+        leverage: float,
+        contract_size: float,
+        maker_fee_rate: float,
+        taker_fee_rate: float,
+        maintenance_margin_rate: float,
+    ):
+        import hquant_py_native  # type: ignore
+
+        self._native = hquant_py_native.FuturesBacktest(
+            float(initial_margin),
+            float(leverage),
+            float(contract_size),
+            float(maker_fee_rate),
+            float(taker_fee_rate),
+            float(maintenance_margin_rate),
+        )
+
+    def apply_signal(self, action: str, price: float, margin: float) -> None:
+        self._native.apply_signal(str(action), float(price), float(margin))
+
+    def on_price(self, price: float) -> None:
+        self._native.on_price(float(price))
+
+    def result(self, price: float) -> dict:
+        return dict(self._native.result(float(price)))

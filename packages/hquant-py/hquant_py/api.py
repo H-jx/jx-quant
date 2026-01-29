@@ -55,6 +55,26 @@ class _HqColumnF64(ctypes.Structure):
         ("head", ctypes.c_size_t),
     ]
 
+class _BacktestParamsC(ctypes.Structure):
+    _fields_ = [
+        ("initial_margin", ctypes.c_double),
+        ("leverage", ctypes.c_double),
+        ("contract_size", ctypes.c_double),
+        ("maker_fee_rate", ctypes.c_double),
+        ("taker_fee_rate", ctypes.c_double),
+        ("maintenance_margin_rate", ctypes.c_double),
+    ]
+
+
+class _BacktestResultC(ctypes.Structure):
+    _fields_ = [
+        ("equity", ctypes.c_double),
+        ("profit", ctypes.c_double),
+        ("profit_rate", ctypes.c_double),
+        ("max_drawdown_rate", ctypes.c_double),
+        ("liquidated", ctypes.c_uint8),
+    ]
+
 
 def _default_lib_name() -> str:
     if sys.platform == "darwin":
@@ -105,6 +125,14 @@ class HQuant:
         # Indicators
         lib.hquant_add_rsi.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
         lib.hquant_add_rsi.restype = ctypes.c_uint32
+        lib.hquant_add_strategy.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_size_t,
+        ]
+        lib.hquant_add_strategy.restype = ctypes.c_uint32
 
         # Data feed
         lib.hquant_push_bar.argtypes = [ctypes.c_void_p, _BarC]
@@ -127,6 +155,21 @@ class HQuant:
 
     def add_rsi(self, period: int) -> int:
         return int(self._lib.hquant_add_rsi(self._ptr, ctypes.c_size_t(period)))
+
+    def add_strategy(self, name: str, dsl: str) -> int:
+        name_b = name.encode("utf-8")
+        dsl_b = dsl.encode("utf-8")
+        name_buf = ctypes.create_string_buffer(name_b)
+        dsl_buf = ctypes.create_string_buffer(dsl_b)
+        return int(
+            self._lib.hquant_add_strategy(
+                self._ptr,
+                ctypes.cast(name_buf, ctypes.POINTER(ctypes.c_uint8)),
+                ctypes.c_size_t(len(name_b)),
+                ctypes.cast(dsl_buf, ctypes.POINTER(ctypes.c_uint8)),
+                ctypes.c_size_t(len(dsl_b)),
+            )
+        )
 
     def push_bar(self, bar: Bar) -> None:
         self._lib.hquant_push_bar(
@@ -169,10 +212,16 @@ class HQuant:
         out = []
         for i in range(got):
             s = buf[i]
+            action = int(s.action)
+            action_str = "HOLD"
+            if action == 1:
+                action_str = "BUY"
+            elif action == 2:
+                action_str = "SELL"
             out.append(
                 {
                     "strategy_id": int(s.strategy_id),
-                    "action": int(s.action),
+                    "action": action_str,
                     "timestamp": int(s.timestamp),
                 }
             )
@@ -209,3 +258,90 @@ class HQuant:
         if end <= cap:
             return buf[start:end], buf[:0]
         return buf[start:], buf[: end - cap]
+
+
+class FuturesBacktest:
+    ACTION_BUY = 1
+    ACTION_SELL = 2
+    ACTION_HOLD = 3
+
+    def __init__(
+        self,
+        *,
+        initial_margin: float,
+        leverage: float,
+        contract_size: float,
+        maker_fee_rate: float,
+        taker_fee_rate: float,
+        maintenance_margin_rate: float,
+        lib_path: Optional[str] = None,
+    ):
+        self._lib = _load_lib(lib_path)
+        self._bind(self._lib)
+        params = _BacktestParamsC(
+            initial_margin=float(initial_margin),
+            leverage=float(leverage),
+            contract_size=float(contract_size),
+            maker_fee_rate=float(maker_fee_rate),
+            taker_fee_rate=float(taker_fee_rate),
+            maintenance_margin_rate=float(maintenance_margin_rate),
+        )
+        self._ptr = self._lib.hq_backtest_new(params)
+        if not self._ptr:
+            raise ValueError("hq_backtest_new returned NULL (invalid params?)")
+
+    def close(self) -> None:
+        if getattr(self, "_ptr", None):
+            self._lib.hq_backtest_free(self._ptr)
+            self._ptr = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _bind(lib: ctypes.CDLL) -> None:
+        lib.hq_backtest_new.argtypes = [_BacktestParamsC]
+        lib.hq_backtest_new.restype = ctypes.c_void_p
+        lib.hq_backtest_free.argtypes = [ctypes.c_void_p]
+        lib.hq_backtest_free.restype = None
+        lib.hq_backtest_apply_signal.argtypes = [ctypes.c_void_p, ctypes.c_uint8, ctypes.c_double, ctypes.c_double]
+        lib.hq_backtest_apply_signal.restype = None
+        lib.hq_backtest_on_price.argtypes = [ctypes.c_void_p, ctypes.c_double]
+        lib.hq_backtest_on_price.restype = None
+        lib.hq_backtest_result.argtypes = [ctypes.c_void_p, ctypes.c_double]
+        lib.hq_backtest_result.restype = _BacktestResultC
+
+    @staticmethod
+    def _action_to_u8(action: str) -> int:
+        a = action.upper()
+        if a == "BUY":
+            return FuturesBacktest.ACTION_BUY
+        if a == "SELL":
+            return FuturesBacktest.ACTION_SELL
+        if a == "HOLD":
+            return FuturesBacktest.ACTION_HOLD
+        raise ValueError(f"invalid action: {action}")
+
+    def apply_signal(self, action: str, price: float, margin: float) -> None:
+        self._lib.hq_backtest_apply_signal(
+            self._ptr,
+            ctypes.c_uint8(self._action_to_u8(action)),
+            ctypes.c_double(float(price)),
+            ctypes.c_double(float(margin)),
+        )
+
+    def on_price(self, price: float) -> None:
+        self._lib.hq_backtest_on_price(self._ptr, ctypes.c_double(float(price)))
+
+    def result(self, price: float) -> dict:
+        r = self._lib.hq_backtest_result(self._ptr, ctypes.c_double(float(price)))
+        return {
+            "equity": float(r.equity),
+            "profit": float(r.profit),
+            "profit_rate": float(r.profit_rate),
+            "max_drawdown_rate": float(r.max_drawdown_rate),
+            "liquidated": bool(int(r.liquidated)),
+        }

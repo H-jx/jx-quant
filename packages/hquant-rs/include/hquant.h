@@ -22,11 +22,11 @@ typedef struct Bar {
   double buy_volume;
 } Bar;
 
-typedef enum Action {
-  ACTION_BUY = 1,
-  ACTION_SELL = 2,
-  ACTION_HOLD = 3,
-} Action;
+// Explicit u8 ABI (matches Rust `#[repr(u8)]`).
+typedef uint8_t Action;
+static const Action ACTION_BUY = 1;
+static const Action ACTION_SELL = 2;
+static const Action ACTION_HOLD = 3;
 
 typedef struct Signal {
   uint32_t strategy_id;
@@ -34,10 +34,10 @@ typedef struct Signal {
   int64_t timestamp;
 } Signal;
 
-typedef enum IndicatorValueKind {
-  INDICATOR_SCALAR = 1,
-  INDICATOR_TRIPLE = 2,
-} IndicatorValueKind;
+// Explicit u8 ABI (matches Rust `#[repr(u8)]`).
+typedef uint8_t IndicatorValueKind;
+static const IndicatorValueKind INDICATOR_SCALAR = 1;
+static const IndicatorValueKind INDICATOR_TRIPLE = 2;
 
 typedef struct IndicatorValue {
   IndicatorValueKind kind;
@@ -62,9 +62,11 @@ typedef struct HqColumnI64 {
 
 // ===== HQuant =====
 
+// Returns NULL if `capacity == 0` (or on internal failure).
 HQuant* hquant_new(size_t capacity);
 void hquant_free(HQuant* ptr);
 
+// Returns 0 on invalid args / failure.
 uint32_t hquant_add_rsi(HQuant* ptr, size_t period);
 uint32_t hquant_add_ema_close(HQuant* ptr, size_t period);
 uint32_t hquant_add_sma_close(HQuant* ptr, size_t period);
@@ -72,6 +74,7 @@ uint32_t hquant_add_stddev_close(HQuant* ptr, size_t period);
 uint32_t hquant_add_boll(HQuant* ptr, size_t period, double k);
 uint32_t hquant_add_macd(HQuant* ptr, size_t fast, size_t slow, size_t signal);
 
+// Returns 0 on parse error / invalid UTF-8.
 uint32_t hquant_add_strategy(
   HQuant* ptr,
   const uint8_t* name_utf8,
@@ -94,6 +97,7 @@ HqColumnF64 hquant_volume_column(HQuant* ptr);
 HqColumnF64 hquant_buy_volume_column(HQuant* ptr);
 HqColumnI64 hquant_timestamp_column(HQuant* ptr);
 
+// Returns NaN when `ptr==NULL` or when the indicator has no value yet.
 IndicatorValue hquant_indicator_last(HQuant* ptr, uint32_t id);
 
 size_t hquant_signals_len(HQuant* ptr);
@@ -118,6 +122,7 @@ typedef struct BacktestResult {
   uint8_t liquidated;
 } BacktestResult;
 
+// Returns NULL when params are invalid.
 FuturesBacktest* hq_backtest_new(BacktestParams params);
 void hq_backtest_free(FuturesBacktest* ptr);
 void hq_backtest_apply_signal(FuturesBacktest* ptr, Action action, double price, double margin);
@@ -127,4 +132,3 @@ BacktestResult hq_backtest_result(FuturesBacktest* ptr, double price);
 #ifdef __cplusplus
 } // extern "C"
 #endif
-

@@ -1,4 +1,5 @@
 use hquant_rs::engine::HQuant as CoreHQuant;
+use hquant_rs::backtest::{BacktestParams as CoreBacktestParams, FuturesBacktest as CoreFuturesBacktest};
 use hquant_rs::indicator::IndicatorSpec;
 use hquant_rs::multi::MultiHQuant as CoreMultiHQuant;
 use hquant_rs::period::Period;
@@ -54,6 +55,25 @@ pub struct IndicatorValue {
     pub a: f64,
     pub b: f64,
     pub c: f64,
+}
+
+#[napi(object)]
+pub struct BacktestParams {
+    pub initial_margin: f64,
+    pub leverage: f64,
+    pub contract_size: f64,
+    pub maker_fee_rate: f64,
+    pub taker_fee_rate: f64,
+    pub maintenance_margin_rate: f64,
+}
+
+#[napi(object)]
+pub struct BacktestResult {
+    pub equity: f64,
+    pub profit: f64,
+    pub profit_rate: f64,
+    pub max_drawdown_rate: f64,
+    pub liquidated: bool,
 }
 
 #[napi(object)]
@@ -215,6 +235,69 @@ impl HQuant {
             capacity: cap as u32,
             len: len as u32,
             head: head as u32,
+        })
+    }
+}
+
+fn parse_action_str(s: &str) -> Option<CoreAction> {
+    match s.to_ascii_uppercase().as_str() {
+        "BUY" => Some(CoreAction::Buy),
+        "SELL" => Some(CoreAction::Sell),
+        "HOLD" => Some(CoreAction::Hold),
+        _ => None,
+    }
+}
+
+#[napi]
+pub struct FuturesBacktest {
+    inner: Mutex<CoreFuturesBacktest>,
+}
+
+#[napi]
+impl FuturesBacktest {
+    #[napi(constructor)]
+    pub fn new(params: BacktestParams) -> Result<Self> {
+        let p = CoreBacktestParams {
+            initial_margin: params.initial_margin,
+            leverage: params.leverage,
+            contract_size: params.contract_size,
+            maker_fee_rate: params.maker_fee_rate,
+            taker_fee_rate: params.taker_fee_rate,
+            maintenance_margin_rate: params.maintenance_margin_rate,
+        };
+        if !p.is_valid() {
+            return Err(Error::from_reason("invalid backtest params"));
+        }
+        Ok(Self {
+            inner: Mutex::new(CoreFuturesBacktest::new(p)),
+        })
+    }
+
+    #[napi]
+    pub fn apply_signal(&self, action: String, price: f64, margin: f64) -> Result<()> {
+        let a = parse_action_str(&action).ok_or_else(|| Error::from_reason("invalid action"))?;
+        let mut bt = self.inner.lock().map_err(|_| Error::from_reason("lock poisoned"))?;
+        bt.apply_signal(a, price, margin);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn on_price(&self, price: f64) -> Result<()> {
+        let mut bt = self.inner.lock().map_err(|_| Error::from_reason("lock poisoned"))?;
+        bt.on_price(price);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn result(&self, price: f64) -> Result<BacktestResult> {
+        let bt = self.inner.lock().map_err(|_| Error::from_reason("lock poisoned"))?;
+        let r = bt.result(price);
+        Ok(BacktestResult {
+            equity: r.equity,
+            profit: r.profit,
+            profit_rate: r.profit_rate,
+            max_drawdown_rate: r.max_drawdown_rate,
+            liquidated: r.liquidated,
         })
     }
 }

@@ -16,6 +16,23 @@ export type Signal = {
   timestamp: number;
 };
 
+export type BacktestParams = {
+  initialMargin: number;
+  leverage: number;
+  contractSize: number;
+  makerFeeRate: number;
+  takerFeeRate: number;
+  maintenanceMarginRate: number;
+};
+
+export type BacktestResult = {
+  equity: number;
+  profit: number;
+  profitRate: number;
+  maxDrawdownRate: number;
+  liquidated: boolean;
+};
+
 export type ColumnF64 = {
   buffer: ArrayBuffer;
   capacity: number;
@@ -47,6 +64,18 @@ type Native = {
     addMultiStrategy(name: string, dsl: string): number;
     pollSignals(): Signal[];
   };
+  FuturesBacktest: new (params: {
+    initialMargin: number;
+    leverage: number;
+    contractSize: number;
+    makerFeeRate: number;
+    takerFeeRate: number;
+    maintenanceMarginRate: number;
+  }) => {
+    applySignal(action: "BUY" | "SELL" | "HOLD", price: number, margin: number): void;
+    onPrice(price: number): void;
+    result(price: number): BacktestResult;
+  };
 };
 
 function loadNative(): Native {
@@ -66,10 +95,125 @@ function loadNative(): Native {
   );
 }
 
-const native = loadNative();
+let native: Native | null = null;
 
-export class HQuant extends native.HQuant {}
-export class MultiHQuant extends native.MultiHQuant {}
+function nativeOrThrow(): Native {
+  if (native) return native;
+  native = loadNative();
+  return native;
+}
+
+export class HQuant {
+  private readonly inner: InstanceType<Native["HQuant"]>;
+
+  constructor(capacity: number) {
+    this.inner = new (nativeOrThrow().HQuant)(capacity);
+  }
+
+  addRsi(period: number): number {
+    return this.inner.addRsi(period);
+  }
+
+  addEmaClose(period: number): number {
+    return this.inner.addEmaClose(period);
+  }
+
+  addStrategy(name: string, dsl: string): number {
+    return this.inner.addStrategy(name, dsl);
+  }
+
+  pushBar(bar: Bar): void {
+    this.inner.pushBar(bar);
+  }
+
+  updateLastBar(bar: Bar): void {
+    this.inner.updateLastBar(bar);
+  }
+
+  indicatorLast(id: number): { kind: number; a: number; b: number; c: number } {
+    return this.inner.indicatorLast(id);
+  }
+
+  pollSignals(): Signal[] {
+    return this.inner.pollSignals();
+  }
+
+  len(): number {
+    return this.inner.len();
+  }
+
+  capacity(): number {
+    return this.inner.capacity();
+  }
+
+  closeColumn(): ColumnF64 {
+    return this.inner.closeColumn();
+  }
+
+  openColumn(): ColumnF64 {
+    return this.inner.openColumn();
+  }
+
+  highColumn(): ColumnF64 {
+    return this.inner.highColumn();
+  }
+
+  lowColumn(): ColumnF64 {
+    return this.inner.lowColumn();
+  }
+
+  volumeColumn(): ColumnF64 {
+    return this.inner.volumeColumn();
+  }
+
+  buyVolumeColumn(): ColumnF64 {
+    return this.inner.buyVolumeColumn();
+  }
+}
+
+export class MultiHQuant {
+  private readonly inner: InstanceType<Native["MultiHQuant"]>;
+
+  constructor(capacity: number, periods: string[]) {
+    this.inner = new (nativeOrThrow().MultiHQuant)(capacity, periods);
+  }
+
+  feedBar(bar: Bar): void {
+    this.inner.feedBar(bar);
+  }
+
+  flush(): void {
+    this.inner.flush();
+  }
+
+  addMultiStrategy(name: string, dsl: string): number {
+    return this.inner.addMultiStrategy(name, dsl);
+  }
+
+  pollSignals(): Signal[] {
+    return this.inner.pollSignals();
+  }
+}
+
+export class FuturesBacktest {
+  private readonly inner: InstanceType<Native["FuturesBacktest"]>;
+
+  constructor(params: BacktestParams) {
+    this.inner = new (nativeOrThrow().FuturesBacktest)(params);
+  }
+
+  applySignal(action: "BUY" | "SELL" | "HOLD", price: number, margin: number): void {
+    this.inner.applySignal(action, price, margin);
+  }
+
+  onPrice(price: number): void {
+    this.inner.onPrice(price);
+  }
+
+  result(price: number): BacktestResult {
+    return this.inner.result(price);
+  }
+}
 
 // Helpers for ring-buffer column ordering (zero-copy; may return 2 views).
 export function orderedF64Slices(col: ColumnF64): [Float64Array, Float64Array] {

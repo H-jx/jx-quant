@@ -11,6 +11,23 @@ pub struct BacktestParams {
     pub maintenance_margin_rate: f64,
 }
 
+impl BacktestParams {
+    pub fn is_valid(&self) -> bool {
+        self.initial_margin.is_finite()
+            && self.initial_margin > 0.0
+            && self.leverage.is_finite()
+            && self.leverage >= 1.0
+            && self.contract_size.is_finite()
+            && self.contract_size > 0.0
+            && self.maker_fee_rate.is_finite()
+            && self.maker_fee_rate >= 0.0
+            && self.taker_fee_rate.is_finite()
+            && self.taker_fee_rate >= 0.0
+            && self.maintenance_margin_rate.is_finite()
+            && self.maintenance_margin_rate >= 0.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     Long,
@@ -61,6 +78,13 @@ impl FuturesBacktest {
             pos_short: None,
             liquidated: false,
         }
+    }
+
+    pub fn try_new(params: BacktestParams) -> Option<Self> {
+        if !params.is_valid() {
+            return None;
+        }
+        Some(Self::new(params))
     }
 
     pub fn cash(&self) -> f64 {
