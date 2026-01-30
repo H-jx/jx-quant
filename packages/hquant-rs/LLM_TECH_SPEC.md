@@ -103,41 +103,7 @@
   - `on_update_last(old_bar, new_bar, bars)` (recompute last values incrementally)
 - warmup semantics: many indicators output `NaN` until enough history.
 
-## Strategy DSL
-### High-level (`packages/hquant-rs/src/strategy/mod.rs`)
-- input: multi-line DSL; each non-empty, non-comment line is a rule:
-  - format: `IF <condition> THEN <action>`
-  - comment line: starts with `#`
-- actions:
-  - `BUY|SELL|HOLD` (also accepts `BUY()` etc)
-- evaluation:
-  - rules evaluated top-down per bar; first match emits `Signal`
-  - if indicator value is `NaN`, comparisons are `false`
-- compile API:
-  - `compile_strategy(id, name, dsl, graph: &mut IndicatorGraph) -> Result<CompiledStrategy, StrategyError>`
-  - multi-period compile (internal): `compile_multi_strategy(id, name, dsl, resolver) -> Result<CompiledStrategyT<MultiIndicatorRef>, StrategyError>`
-- multi-period field suffix:
-  - series refs may include `@<period>` (e.g. `close@4h`)
-  - single-period compile rejects any `@suffix`
-  - suffix parse helper: `period_suffix_to_ms(suffix) -> Result<i64, String>` uses `Period::parse` (`ms|s|m|h|d`)
 
-### Condition grammar (`packages/hquant-rs/src/strategy/dsl.pest`)
-- boolean ops: `AND`, `OR`, `NOT` (also `!`)
-- precedence: `NOT` > `AND` > `OR`
-- parentheses supported
-- comparison: `< <= > >= == !=`
-- indicator call: `IDENT("(" arg_list? ")")`
-- values:
-  - `series_ref`: `ident` or `ident@period_suffix`
-  - `number`: `-?\d+(\.\d+)?`
-
-### Supported indicator calls in conditions (`packages/hquant-rs/src/strategy/dsl_parser.rs`)
-- `RSI(<period>)` or `RSI(close, period=<n>)`
-  - series field restriction: close only
-- `SMA(<series>, <period>)` or kwargs `SMA(close, period=20)`
-- `EMA(<series>, <period>)`
-- `STDDEV(<series>, <period>)`
-- series field names: `open|high|low|close|volume|buy_volume`
 
 ## Engine (single-period)
 ### `HQuant` (`packages/hquant-rs/src/engine.rs`)
