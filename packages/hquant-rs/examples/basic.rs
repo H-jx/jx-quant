@@ -2,6 +2,9 @@ use hquant_rs::engine::HQuant;
 use hquant_rs::indicator::IndicatorSpec;
 use hquant_rs::{Bar, Field};
 
+// If you want multi-timeframe / multi-period strategies (e.g. 15m + 4h),
+// see `examples/multi_period.rs` which uses `hquant_rs::multi::MultiHQuant`.
+
 fn main() {
     let mut hq = HQuant::new(1024);
     let rsi = hq.add_indicator(IndicatorSpec::Rsi { period: 14 });
@@ -9,7 +12,10 @@ fn main() {
         field: Field::Close,
         period: 20,
     });
-    hq.add_strategy("rsi", "IF RSI(14) < 30 THEN BUY\nIF RSI(14) > 70 THEN SELL")
+    hq.add_strategy("rsi", r#"
+    IF RSI(14) < 30 THEN BUY
+    IF RSI(14) > 70 THEN SELL
+    "#)
         .unwrap();
 
     for i in 0..200 {
